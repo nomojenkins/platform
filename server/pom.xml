@@ -16,7 +16,7 @@
         <assemble.mainClass>lsfusion.server.logics.BusinessLogicsBootstrap</assemble.mainClass>
         <assemble.finalName>lsfusion-server-${project.version}</assemble.finalName>
     </properties>
-
+    
     <build>
         <!-- multiple inheritance : abstract-logics --> <!-- server is also a logics -->
         <resources>
