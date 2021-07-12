@@ -13,7 +13,7 @@
     <groupId>lsfusion.platform</groupId>
     <artifactId>web-client</artifactId>
     <packaging>jar</packaging>
-    <name>Web Client</name>
+    <name>Web Client</name>                                      
 
     <properties>
         <war.finalName>lsfusion-client-${project.version}</war.finalName>
