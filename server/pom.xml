@@ -7,7 +7,7 @@
         <relativePath>../build/platform-assemble/pom.xml</relativePath>
     </parent>
 
-    <groupId>lsfusion.platform</groupId>
+    <groupId>lsfusion.platform</groupId> 
     <artifactId>server</artifactId>
     <packaging>jar</packaging>
     <name>Server</name>
