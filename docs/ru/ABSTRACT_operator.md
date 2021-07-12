@@ -4,7 +4,7 @@ title: 'Оператор ABSTRACT'
 
 Оператор `ABSTRACT` - создание [абстрактного свойства](Property_extension.md). 
 
-### Синтаксис!
+### Синтаксис
 
     ABSTRACT [type [exclusionType]] [CHECKED] returnClassName(argClassName1, ..., argClassNameN)
 
