@@ -16,7 +16,7 @@
     <name>Web Client</name>
 
     <properties>
-        <war.finalName>lsfusion-client-${project.version}</war.finalName>
+        <war.finalName>lsfusion-client-${project.version}</war.finalName>     
         <war.explodedDir>${project.build.directory}/${war.finalName}</war.explodedDir>
         <war.packed>${project.build.directory}/${war.finalName}.war</war.packed>
     </properties>
