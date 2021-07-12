@@ -9,7 +9,7 @@ public class DaemonThreadFactory implements ThreadFactory {
     private final AtomicInteger threadNumber = new AtomicInteger(1);
     private final String namePrefix;
 
-    public DaemonThreadFactory(String threadNamePrefix) {
+    public DaemonThreadFactory(String threadNamePrefix)  {
         SecurityManager s = System.getSecurityManager();
         group = s != null
                 ? s.getThreadGroup()
