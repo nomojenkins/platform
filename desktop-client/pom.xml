@@ -10,7 +10,7 @@
     <groupId>lsfusion.platform</groupId>
     <artifactId>desktop-client</artifactId>
     <packaging>jar</packaging>
-    <name>Desktop Client</name>
+    <name>Desktop Client</name> 
 
     <properties>
         <assemble.mainClass>lsfusion.client.controller.MainController</assemble.mainClass>
