@@ -10,7 +10,7 @@ public class SplashScreen extends JFrame {
     private SplashScreen() {
         setAlwaysOnTop(true);
         setUndecorated(true);
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE) ;
 
         JProgressBar progressBar = new JProgressBar();
         progressBar.setIndeterminate(true);
