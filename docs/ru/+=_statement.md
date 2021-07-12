@@ -4,7 +4,7 @@ title: 'Инструкция +='
 
 Инструкция `+=` - добавление реализации (варианта выбора) к [абстрактному свойству](Property_extension.md).
 
-### Синтаксис
+### Синтаксис!
 
     propertyId (param1, ..., paramN) += implExpr;
     propertyId (param1, ..., paramN) += WHEN whenExpr THEN implExpr;
