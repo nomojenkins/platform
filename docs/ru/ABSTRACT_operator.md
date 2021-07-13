@@ -10,7 +10,7 @@ title: 'Оператор ABSTRACT'
 
 Где `exclusionTy*p*e` бывает двух видов:
 
-    EXCLUSIVE
+    EXCLUSIVE                  
     OVERRIDE [FIRST | LAST]
 
 ### Описание
