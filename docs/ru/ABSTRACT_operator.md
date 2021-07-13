@@ -8,7 +8,7 @@ title: 'Оператор ABSTRACT'
 
     ABSTRACT [type [exclusionType]] [CHECKED] returnClassName(argClassName1, ..., argClassNameN)
 
-Где `exclusionType` бывает двух видов:
+Где `exclusionTy*p*e` бывает двух видов:
 
     EXCLUSIVE
     OVERRIDE [FIRST | LAST]
