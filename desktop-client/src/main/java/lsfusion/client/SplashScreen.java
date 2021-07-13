@@ -8,7 +8,7 @@ public class SplashScreen extends JFrame {
     private JLabel lbLogo;
 
     private SplashScreen() {
-        setAlwaysOnTop(true );
+        setAlwaysOnTop(true);
         setUndecorated(true);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE) ;
 
