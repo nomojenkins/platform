@@ -23,7 +23,7 @@ import java.util.List;
 public abstract class AutoFormEntity extends FormEntity {
 
     public AutoFormEntity(LocalizedString caption, Version version) {
-        super(null, null, caption, null, version);
+        super(null, null, caption, null, version, true);
     }
 
     public PropertyDrawEntity<?> addValuePropertyDraw(BaseLogicsModule LM, ObjectEntity object, Version version) {

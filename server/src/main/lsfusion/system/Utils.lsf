@@ -203,10 +203,26 @@ escapeXMLValue(TEXT t) = replace(replace(replace(replace(replace(t, '&', '&amp;'
 
 copyToClipboard INTERNAL 'lsfusion.server.logics.classes.data.utils.string.CopyToClipboardAction' (TEXT);
 
+FORM shareUrlForm NOSHARE
+    OBJECTS share = TEXT PANEL
+    PROPERTIES shareLink = VALUE(share), copy = copyToClipboard(share)
+;
+
+DESIGN shareUrlForm {
+    OBJECTS {
+        MOVE PROPERTY(shareLink) {
+            caption = '';
+        }
+        MOVE PROPERTY(copy) {
+            caption = '{eval.script.copy.to.clipboard}';
+        }
+    }
+}
+
 shareUrl(STRING url, STRING text, STRING title) {
     INTERNAL CLIENT 'shareUrl' PARAMS (JSON FROM url = url, text = text, title = title) TO exportBoolean;
     IF NOT exportBoolean() THEN
-        MESSAGE '<a href="' + url + '">${text}</a>';
+        SHOW shareUrlForm OBJECTS share = url POPUP;
 }
 
 showNotification(STRING text, JSON options) {

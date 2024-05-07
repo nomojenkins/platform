@@ -569,6 +569,8 @@ public class MainFrame implements EntryPoint {
                 GwtClientUtils.postBroadcastChannelMessage(channel, GwtSharedUtils.NOTIFICATION_RECEIVED + notificationReceived);
                 formsController.executeNotificationAction(Integer.valueOf(notificationReceived), null);
             }
+            if (message.equals("flashTitle"))
+                GwtClientUtils.flashTitle();
         });
 
         if(notification != null)

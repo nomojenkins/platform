@@ -80,6 +80,7 @@ public class MainController {
         model.addAttribute("notificationId", request.getParameter(GwtSharedUtils.NOTIFICATION_PARAM));
         model.addAttribute("notificationSend", GwtSharedUtils.NOTIFICATION_SEND);
         model.addAttribute("notificationReceived", GwtSharedUtils.NOTIFICATION_RECEIVED);
+        addStandardModelAttributes(model, request, getAndCheckServerSettings(request, checkVersionError, false), true);
         return "push-notification";
     }
 

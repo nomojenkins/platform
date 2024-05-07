@@ -815,13 +815,13 @@ public class ScriptingLogicsModule extends LogicsModule {
     }
 
     public ScriptingFormEntity createScriptedForm(String formName, LocalizedString caption, DebugInfo.DebugPoint point, String icon,
-                                                  int autoRefresh, boolean localAsync) throws ScriptingErrorLog.SemanticErrorException {
+                                                  int autoRefresh, boolean localAsync, boolean allowShare) throws ScriptingErrorLog.SemanticErrorException {
         checks.checkDuplicateForm(formName);
         caption = (caption == null ? LocalizedString.create(formName) : caption);
 
         String canonicalName = elementCanonicalName(formName);
 
-        FormEntity formEntity = new FormEntity(canonicalName, point, caption, icon, getVersion());
+        FormEntity formEntity = new FormEntity(canonicalName, point, caption, icon, getVersion(), allowShare);
         addFormEntity(formEntity);
                 
         ScriptingFormEntity form = new ScriptingFormEntity(this, formEntity);

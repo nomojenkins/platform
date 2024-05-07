@@ -1405,6 +1405,10 @@ public class GwtClientUtils {
         $wnd.postBroadcastChannelMessage(channel, message);
     }-*/;
 
+    public static native void flashTitle()/*-{
+        $wnd.flashTitle();
+    }-*/;
+
     public static native boolean isFunctionContainsArguments(JavaScriptObject fn)/*-{
         var str = fn.toString().replace(/\/\*[\s\S]*?\*\//g, '')
             .replace(/\/\/(.)*\\/g, '')

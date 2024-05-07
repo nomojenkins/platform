@@ -310,3 +310,17 @@ function showNotification(title, options) {
         });
     }
 }
+
+function flashTitle() {
+    if (document.hidden) {
+        let originalTitle = document.title;
+        let timer = setInterval(function () {
+            document.title = originalTitle === document.title ? "Check me!" : originalTitle;
+        }, 500);
+
+        window.onfocus = function () {
+            document.title = originalTitle;
+            clearInterval(timer);
+        }
+    }
+}
