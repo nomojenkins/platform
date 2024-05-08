@@ -255,11 +255,8 @@ public class DefaultFormView extends FormView {
         PropertyDrawView closeFunction = get(entity.closeActionPropertyDraw);
         setupFormButton(closeFunction);
 
-        if (entity.shareActionPropertyDraw != null) {
-            PropertyDrawView shareFunction = get(entity.shareActionPropertyDraw);
-            setupFormButton(shareFunction);
-            popupContainer.add(shareFunction, version);
-        }
+        PropertyDrawView shareFunction = get(entity.shareActionPropertyDraw);
+        setupFormButton(shareFunction);
 
         PropertyDrawView logMessage = get(entity.logMessagePropertyDraw);
 
@@ -272,6 +269,8 @@ public class DefaultFormView extends FormView {
         toolbarRightContainer.add(cancelFunction, version);
         toolbarRightContainer.add(okFunction, version);
         toolbarRightContainer.add(closeFunction, version);
+
+        popupContainer.add(shareFunction, version);
     }
 
     private void setupFormButton(PropertyDrawView action) {

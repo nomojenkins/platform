@@ -381,7 +381,7 @@ public class MainFrame implements EntryPoint {
                         public void onSuccess(ClientMessageResult result) {
                             setShouldRepeatPingRequest(true);
                             for (Integer idNotification : result.notificationList)
-                                formsController.executeNotificationAction(idNotification, null);
+                                formsController.executeNotificationAction(idNotification, null, true);
                         }
 
                         @Override
@@ -567,14 +567,12 @@ public class MainFrame implements EntryPoint {
             if(message.startsWith(sendPrefix)) {
                 String notificationReceived = message.substring(sendPrefix.length());
                 GwtClientUtils.postBroadcastChannelMessage(channel, GwtSharedUtils.NOTIFICATION_RECEIVED + notificationReceived);
-                formsController.executeNotificationAction(Integer.valueOf(notificationReceived), null);
+                formsController.executeNotificationAction(Integer.valueOf(notificationReceived), null, true);
             }
-            if (message.equals("flashTitle"))
-                GwtClientUtils.flashTitle();
         });
 
         if(notification != null)
-            formsController.executeNotificationAction(Integer.valueOf(notification), openNavigatorMenuIfNeeded);
+            formsController.executeNotificationAction(Integer.valueOf(notification), openNavigatorMenuIfNeeded, false);
     }
 
     public static void applyNavigatorChanges(GNavigatorChangesDTO navigatorChangesDTO, GNavigatorController navigatorController, WindowsController windowsController) {

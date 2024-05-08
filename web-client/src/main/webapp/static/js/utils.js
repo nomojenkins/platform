@@ -311,16 +311,16 @@ function showNotification(title, options) {
     }
 }
 
-function flashTitle() {
+function blinkTitle() {
     if (document.hidden) {
         let originalTitle = document.title;
         let timer = setInterval(function () {
             document.title = originalTitle === document.title ? "Check me!" : originalTitle;
         }, 500);
 
-        window.onfocus = function () {
+        window.addEventListener("focus", function () {
             document.title = originalTitle;
             clearInterval(timer);
-        }
+        }, { once: true });
     }
 }

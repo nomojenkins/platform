@@ -12,19 +12,18 @@
     <script>
         function init() {
             let notification = ${notificationId};
-            let timeoutId = setTimeout(function() {
-                window.location.replace("${redirectUrl}");
-            }, 100);
+            if (notification) {
+                let timeoutId = setTimeout(function() {
+                    window.location.replace("${redirectUrl}");
+                }, 100);
 
-            let broadcastChannel = new BroadcastChannel("${notificationChannel}");
-            broadcastChannel.addEventListener("message", (event) => {
-                if(event.data.startsWith("${notificationReceived}" + notification)) {
-                    window.close();
-                    clearTimeout(timeoutId);
-                }
-            });
-            broadcastChannel.postMessage("${notificationSend}" + notification);
-            broadcastChannel.postMessage("flashTitle");
+                let broadcastChannel = new BroadcastChannel("${notificationChannel}");
+                broadcastChannel.addEventListener("message", (event) => {
+                    if(event.data.startsWith("${notificationReceived}" + notification))
+                        clearTimeout(timeoutId);
+                });
+                broadcastChannel.postMessage("${notificationSend}" + notification);
+            }
         }
     </script>
 </head>

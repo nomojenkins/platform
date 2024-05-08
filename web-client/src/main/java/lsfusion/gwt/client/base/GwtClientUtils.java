@@ -1405,8 +1405,8 @@ public class GwtClientUtils {
         $wnd.postBroadcastChannelMessage(channel, message);
     }-*/;
 
-    public static native void flashTitle()/*-{
-        $wnd.flashTitle();
+    public static native void blinkTitle()/*-{
+        $wnd.blinkTitle();
     }-*/;
 
     public static native boolean isFunctionContainsArguments(JavaScriptObject fn)/*-{

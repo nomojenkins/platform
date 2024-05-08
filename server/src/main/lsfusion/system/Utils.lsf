@@ -203,7 +203,7 @@ escapeXMLValue(TEXT t) = replace(replace(replace(replace(replace(t, '&', '&amp;'
 
 copyToClipboard INTERNAL 'lsfusion.server.logics.classes.data.utils.string.CopyToClipboardAction' (TEXT);
 
-FORM shareUrlForm NOSHARE
+FORM shareUrlForm
     OBJECTS share = TEXT PANEL
     PROPERTIES shareLink = VALUE(share), copy = copyToClipboard(share)
 ;
@@ -217,6 +217,7 @@ DESIGN shareUrlForm {
             caption = '{eval.script.copy.to.clipboard}';
         }
     }
+    REMOVE PROPERTY(formShare());
 }
 
 shareUrl(STRING url, STRING text, STRING title) {

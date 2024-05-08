@@ -682,7 +682,7 @@ public abstract class FormsController {
     public long executeNavigatorAction(String actionSID, final NativeEvent event, boolean sync) {
         return executeNavigatorAction(actionSID, event.getCtrlKey(), sync, 1, null);
     }
-    public void executeNotificationAction(Integer id, Runnable onRequestFinished) {
+    public void executeNotificationAction(Integer id, Runnable onRequestFinished, boolean blinking) {
         FormContainer currentForm = onRequestFinished == null ? MainFrame.getCurrentForm() : null;
         GFormController form = currentForm != null ? currentForm.getForm() : null;
         if (form != null)
@@ -693,6 +693,9 @@ public abstract class FormsController {
             }
         else
             executeNavigatorAction(id.toString(), false, true, 2, null);
+
+        if (blinking)
+            GwtClientUtils.blinkTitle();
     }
     public long executeNavigatorAction(String actionSID, boolean disableForbidDuplicate, boolean sync, int type, Runnable onRequestFinished) {
         ExecuteNavigatorAction navigatorAction = new ExecuteNavigatorAction(actionSID, type);

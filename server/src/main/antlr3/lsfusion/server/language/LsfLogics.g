@@ -506,12 +506,11 @@ formDeclaration returns [ScriptingFormEntity form]
 	String image = null;
 	String title = null;
 	boolean localAsync = false;
-	boolean allowShare = true;
 	DebugInfo.DebugPoint point = getCurrentDebugPoint();
 }
 @after {
 	if (inMainParseState()) {
-		$form = self.createScriptedForm($formNameCaption.name, $formNameCaption.caption, point, $img.image, autoRefresh, localAsync, allowShare);
+		$form = self.createScriptedForm($formNameCaption.name, $formNameCaption.caption, point, $img.image, autoRefresh, localAsync);
 	}
 }
 	:	'FORM' 
@@ -519,7 +518,6 @@ formDeclaration returns [ScriptingFormEntity form]
 		(	img=imageStatement
 		|	('AUTOREFRESH' refresh=intLiteral { autoRefresh = $refresh.val; })
 		|	('LOCALASYNC' { localAsync = true; })
-		|   ('NOSHARE' { allowShare = false; })
 		)*
 	;
 

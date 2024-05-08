@@ -263,11 +263,10 @@ public class FormEntity implements FormSelector<ObjectEntity> {
     }
 
     public boolean localAsync = false;
-    private final boolean allowShare;
 
     public PropertyObjectEntity<?> reportPathProp;
 
-    public FormEntity(String canonicalName, DebugInfo.DebugPoint debugPoint, LocalizedString caption, String imagePath, Version version, boolean allowShare) {
+    public FormEntity(String canonicalName, DebugInfo.DebugPoint debugPoint, LocalizedString caption, String imagePath, Version version) {
         this.ID = BaseLogicsModule.generateStaticNewID();
 
         this.initCaption = caption;
@@ -275,8 +274,6 @@ public class FormEntity implements FormSelector<ObjectEntity> {
 
         this.canonicalName = canonicalName;
         this.debugPoint = debugPoint;
-
-        this.allowShare = allowShare;
 
         logger.debug("Initializing form " + ThreadLocalContext.localize(caption) + "...");
 
@@ -297,8 +294,7 @@ public class FormEntity implements FormSelector<ObjectEntity> {
         okActionPropertyDraw = addPropertyDraw(formOk, version);
         closeActionPropertyDraw = addPropertyDraw(formClose, version);
         dropActionPropertyDraw = addPropertyDraw(baseLM.getFormDrop(), version);
-        if (allowShare)
-            shareActionPropertyDraw = addPropertyDraw(baseLM.getFormShare(), version);
+        shareActionPropertyDraw = addPropertyDraw(baseLM.getFormShare(), version);
 
         logMessagePropertyDraw = addPropertyDraw(baseLM.getLogMessage(), version);
         logMessagePropertyDraw.setPropertyExtra(addPropertyObject(externalShowIf), PropertyDrawExtraType.SHOWIF, version);
