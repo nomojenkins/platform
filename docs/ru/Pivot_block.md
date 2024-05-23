@@ -1,75 +1,89 @@
 ---
-title: 'Блок PIVOT'
+title: 'Блок настройки сводных таблиц'
 ---
 
-Блоки PIVOT [инструкции `FORM`](FORM_statement.md) - набор конструкций, управляющих опциями [вида отображения `PIVOT`](Interactive_view.md#property) в интерактивном представлении формы.
+Блок настроек сводных таблиц [инструкции `FORM`](FORM_statement.md) - управление начальными настройками [видов отображения *сводная таблица*](Interactive_view.md#property) в интерактивном представлении формы.
 
 ### Синтаксис
 
 ```
 PIVOT 
-pivotOptionsBlock1, ..., pivotOptionsBlockN
+    pivotSettingsBlock1
+    ... 
+    pivotSettingsBlockN
 ```
 
-Где каждый `pivotOptionsBlocki` имеет следующий синтаксис:
+Где каждый `pivotSettingsBlocki` является блоком настроек. Эти блоки могут быть перечислены в произвольном порядке. Каждый блок может иметь один из следующих синтаксисов:
 
 ```
-groupObjectId pivotOptions |
-COLUMNS columnPropertyDraw1, ..., columnPropertyDrawN |
-ROWS rowPropertyDraw1, ..., rowPropertyDrawN |
-MEASURE measurePropertyDraw1, ..., measurePropertyDrawN
+COLUMNS colFormPropertyList1, ..., colFormPropertyListM 
+ROWS rowFormPropertyList1, ..., rowFormPropertyListK 
+MEASURES measureFormProperty1, ..., measureFormPropertyL
+groupObjectId pivotOptions 
 ```
 
-`pivotOptions` имеет следующий синтаксис:
+Каждый из `colFormPropertyListi` и `rowFormPropertyListj` может описывать либо одиночное свойство на форме, либо группу свойств на форме:
 
 ```
-  (
-  pivotOptionsType |
-  SUM | MAX | MIN |
-  SETTINGS | NOSETTINGS | 
-  CONFIG configStr
-  )*
+formPropertyName
+(formPropertyName1, ..., formPropertyNameX)
+```
+
+Опции `pivotOptions` могут быть перечислены друг за другом в произвольном порядке. Поддерживается следующий набор опций:
+
+```
+pivotType
+calcType
+settingsType
 ```
 
 ### Описание
 
-Блок PIVOT позволяет задать опции [вида отображения PIVOT](Interactive_view.md#property). 
+Блок `PIVOT` позволяет задать начальные настройки сводных таблиц формы. С его помощью можно добавить свойства на форме в соответствующие списки колонок (блок `COLUMNS`), рядов (блок `ROWS`) и измерений (блок `MEASURES`) сводной таблицы, а также указать начальные значения некоторых опций сводных таблиц.
 
 ### Параметры 
 
+- `formPropertyName`
+
+    [Имя свойства на форме](Properties_and_actions_block.md#name). 
+
+- `measureFormProperty1, ..., measureFormPropertyL`
+
+    Список имен свойств на форме. Определяет свойства на форме, которые добавляются в списки измерений соответствующих сводных таблиц.
+
 - `groupObjectId`
 
-    [Идентификатор группы объектов](IDs.md#groupobjectid), к которому применяются `pivotOptions`.
+    [Идентификатор группы объектов](IDs.md#groupobjectid), к которой применяются опции из описываемого блока настроек.
 
-- `pivotOptionsType`
+- `pivotType`
 
-    Строковый литерал, который задаёт по умолчанию один из стандартных типов отображения PIVOT. Список значений: 
-    - `Table` (используется по умолчанию)
-    - `Table Bar Chart`
-    - `Table Heatmap`
-    - `Table Row Heatmap`
-    - `Table Col Heatmap`
-    - `Bar Chart`
-    - `Stacked Bar Chart`
-    - `Line Chart`
-    - `Area Chart`
-    - `Scatter Chart`
-    - `Multiple Pie Chart`
-    - `Horizontal Bar Chart`
-    - `Horizontal Stacked Bar Chart` 
+    [Строковый литерал](Literals.md#strliteral), который определяет начальный вид отображения сводной таблицы. Может принимать одно из следующих значений:
+    
+    - `'Table'` (значение по умолчанию)
+    - `'Table Bar Chart'`
+    - `'Table Heatmap'`
+    - `'Table Row Heatmap'`
+    - `'Table Col Heatmap'`
+    - `'Bar Chart'`
+    - `'Stacked Bar Chart'`
+    - `'Line Chart'`
+    - `'Area Chart'`
+    - `'Scatter Chart'`
+    - `'Multiple Pie Chart'`
+    - `'Horizontal Bar Chart'`
+    - `'Horizontal Stacked Bar Chart'`
+  
+- `calcType`
+       
+    Указание начальной агрегирующей функции. Может задаваться одним из ключевых слов:
 
-- `SUM | MAX | MIN`
+    - `SUM` - сумма значений (значение по умолчанию)
+    - `MAX` - максимум значений
+    - `MIN` - минимум значений
+         
+- `settingsType`
 
-    Ключевые слова, задающие тип аггрегатора:
-    - `SUM` - сумма (используется по умолчанию) 
-    - `MAX` - максимум 
-    - `MIN` - минимум 
-
-- `SETTINGS | NOSETTINGS`
-
-    Ключевые слова, определяющие, показываются ли пользователю настройки PIVOT:
-    - `SETTINGS` - настройки показываются (используется по умолчанию)
+    Указание того, показываются ли пользователю настройки сводной таблицы. Может задаваться одним из ключевых слов:
+    
+    - `SETTINGS` - настройки показываются (значение по умолчанию)
     - `NOSETTINGS` - настройки не показываются
-
-- `configStr`
-    Строковый литерал, указывающий на имя javascript функции, используемой для отображения PIVOT.
