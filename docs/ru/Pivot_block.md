@@ -2,7 +2,7 @@
 title: 'Блок настройки сводных таблиц'
 ---
 
-Блок настроек сводных таблиц [инструкции `FORM`](FORM_statement.md) - управление начальными настройками [видов отображения *сводная таблица*](Interactive_view.md#property) в интерактивном представлении формы.
+Блок настроек сводных таблиц [инструкции `FORM`](FORM_statement.md) - управление начальными настройками [вида отображения *сводная таблица*](Interactive_view.md#property) в интерактивном представлении формы.
 
 ### Синтаксис
 
@@ -18,8 +18,8 @@ PIVOT
 ```
 COLUMNS colFormPropertyList1, ..., colFormPropertyListM 
 ROWS rowFormPropertyList1, ..., rowFormPropertyListK 
-MEASURES measureFormProperty1, ..., measureFormPropertyL
-groupObjectId pivotOptions 
+MEASURES measureFormPropertyName1, ..., measureFormPropertyNameL
+objectGroupId pivotOptions 
 ```
 
 Каждый из `colFormPropertyListi` и `rowFormPropertyListj` может описывать либо одиночное свойство на форме, либо группу свойств на форме:
@@ -39,7 +39,7 @@ settingsType
 
 ### Описание
 
-Блок `PIVOT` позволяет задать начальные настройки сводных таблиц формы. С его помощью можно добавить свойства на форме в соответствующие списки колонок (блок `COLUMNS`), рядов (блок `ROWS`) и измерений (блок `MEASURES`) сводной таблицы, а также указать начальные значения некоторых опций сводных таблиц.
+Блок настроек сводных таблиц позволяет задать начальные настройки сводных таблиц формы. С его помощью можно добавить свойства на форме в соответствующие списки колонок (блок `COLUMNS`), рядов (блок `ROWS`) и измерений (блок `MEASURES`) сводной таблицы, а также указать начальные значения некоторых опций сводных таблиц.
 
 ### Параметры 
 
@@ -47,11 +47,11 @@ settingsType
 
     [Имя свойства на форме](Properties_and_actions_block.md#name). 
 
-- `measureFormProperty1, ..., measureFormPropertyL`
+- `measureFormPropertyName1, ..., measureFormPropertyNameL`
 
     Список имен свойств на форме. Определяет свойства на форме, которые добавляются в списки измерений соответствующих сводных таблиц.
 
-- `groupObjectId`
+- `objectGroupId`
 
     [Идентификатор группы объектов](IDs.md#groupobjectid), к которой применяются опции из описываемого блока настроек.
 
@@ -87,3 +87,14 @@ settingsType
     
     - `SETTINGS` - настройки показываются (значение по умолчанию)
     - `NOSETTINGS` - настройки не показываются
+
+### Пример
+
+```lsf
+FORM PivotTest 
+    OBJECTS s = Store
+    PROPERTIES(s) name, storeSizeCode, storeSizeName
+    PIVOT s 'Bar Chart' NOSETTINGS MAX 
+        ROWS name(s) COLUMNS storeSizeName(s) MEASURES storeSizeCode(s)    
+;
+```
