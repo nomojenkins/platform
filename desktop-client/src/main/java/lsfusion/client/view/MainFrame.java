@@ -83,7 +83,12 @@ public abstract class MainFrame extends JFrame {
                                             screenSize = (int) dimension.getWidth() + "x" + (int) dimension.getHeight();
                                         }
 
-                                        remoteNavigator.updateClientInfo(new ClientInfo(screenSize, ClientType.NATIVE_DESKTOP));
+                                        GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+                                        Rectangle bounds = devices[0].getDefaultConfiguration().getBounds();
+                                        DisplayMode dm = devices[0].getDefaultConfiguration().getDevice().getDisplayMode();
+                                        double scale = dm.getWidth() / bounds.getWidth();
+
+                                        remoteNavigator.updateClientInfo(new ClientInfo(screenSize, scale, ClientType.NATIVE_DESKTOP, false));
 
                                         return remoteNavigator;
                                     });
@@ -123,7 +128,7 @@ public abstract class MainFrame extends JFrame {
             MainController.useTextAsFilterSeparator = clientSettings.useTextAsFilterSeparator;
             MainController.userFiltersManualApplyMode = clientSettings.userFiltersManualApplyMode;
             MainController.disableActionsIfReadonly = clientSettings.disableActionsIfReadonly;
-            MainController.disableShowingRecentlyLogMessages = clientSettings.disableShowingRecentlyLogMessages;
+            MainController.enableShowingRecentlyLogMessages = clientSettings.enableShowingRecentlyLogMessages;
             MainController.maxRequestQueueSize = clientSettings.maxRequestQueueSize;
             SwingDefaults.resetClientSettingsProperties();
             MainController.setClientSettingsDependentUIDefaults();
@@ -173,7 +178,7 @@ public abstract class MainFrame extends JFrame {
             
             MainController.changeColorTheme(clientSettings.colorTheme);
 
-            frame.executeNavigatorAction("SystemEvents.onClientStarted[]", 0, null, null);
+            frame.executeNavigatorAction("SystemEvents.onClientStartedApply[]", 0, null, null);
         } catch (Throwable e) {
             closeSplashScreen();
             logger.error(getString("client.error.application.initialization"), e);

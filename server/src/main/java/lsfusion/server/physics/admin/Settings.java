@@ -3127,14 +3127,14 @@ public class Settings implements Cloneable {
         this.disableAsyncValuesInterrupt = disableAsyncValuesInterrupt;
     }
 
-    private int mailImapTimeout = 5000; //ms
+    private int mailReceiveTimeout = 5000; //ms
 
-    public int getMailImapTimeout() {
-        return mailImapTimeout;
+    public int getMailReceiveTimeout() {
+        return mailReceiveTimeout;
     }
 
-    public void setMailImapTimeout(int mailImapTimeout) {
-        this.mailImapTimeout = mailImapTimeout;
+    public void setMailReceiveTimeout(int mailReceiveTimeout) {
+        this.mailReceiveTimeout = mailReceiveTimeout;
     }
     
     // makes FILTERS container vertical 3-column by default 
@@ -3317,15 +3317,15 @@ public class Settings implements Cloneable {
         this.disableActionsIfReadonly = disableActionsIfReadonly;
     }
 
-    //option disables showing recently log messages
-    private boolean disableShowingRecentlyLogMessages;
+    //option enables showing recently log messages
+    private boolean enableShowingRecentlyLogMessages;
 
-    public boolean isDisableShowingRecentlyLogMessages() {
-        return disableShowingRecentlyLogMessages;
+    public boolean isEnableShowingRecentlyLogMessages() {
+        return enableShowingRecentlyLogMessages;
     }
 
-    public void setDisableShowingRecentlyLogMessages(boolean disableShowingRecentlyLogMessages) {
-        this.disableShowingRecentlyLogMessages = disableShowingRecentlyLogMessages;
+    public void setEnableShowingRecentlyLogMessages(boolean enableShowingRecentlyLogMessages) {
+        this.enableShowingRecentlyLogMessages = enableShowingRecentlyLogMessages;
     }
 
     //show TOOLBARBOX container on the top and switch TOOLBARLEFT and TOOLBARRIGHT containers
@@ -3337,5 +3337,38 @@ public class Settings implements Cloneable {
 
     public void setToolbarTopLeft(boolean toolbarTopLeft) {
         this.toolbarTopLeft = toolbarTopLeft;
+    }
+
+    //max percent of table for sticky columns
+    private double maxStickyLeft = 0.33;
+
+    public double getMaxStickyLeft() {
+        return maxStickyLeft;
+    }
+
+    public void setMaxStickyLeft(double maxStickyLeft) {
+        this.maxStickyLeft = maxStickyLeft;
+    }
+
+    //default size is Tiny if screen width x height is not more than maxPixelTinySize
+    private int maxPixelTinySize = 748800; //1280x585
+
+    public int getMaxPixelTinySize() {
+        return maxPixelTinySize;
+    }
+
+    public void setMaxPixelTinySize(int maxPixelTinySize) {
+        this.maxPixelTinySize = maxPixelTinySize;
+    }
+
+    //default size is Mini if screen width x height is not more than maxPixelMiniSize
+    private int maxPixelMiniSize = 1121280; //1536x730
+
+    public int getMaxPixelMiniSize() {
+        return maxPixelMiniSize;
+    }
+
+    public void setMaxPixelMiniSize(int maxPixelMiniSize) {
+        this.maxPixelMiniSize = maxPixelMiniSize;
     }
 }

@@ -54,6 +54,10 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
     public LA<?> onStarted;
     public LA<?> onFinallyStarted;
 
+    public LA<?> shareAction;
+
+    public LA<?> initCurrentSize;
+
     public LP useBootstrap;
     public LP contentWordWrap;
     public LP serverTheme;
@@ -83,6 +87,7 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
     public LP javaVersionConnection;
     public LP is64JavaConnection;
     public LP screenSizeConnection;
+    public LP scaleConnection;
     public LP clientTypeConnection;
     public LP<PropertyInterface> connectionStatusConnection;
     public LP connectTimeConnection;
@@ -92,6 +97,9 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
     public LP currentConnection;
 
     public LP currentLaunch;
+
+    public LP paddingCss;
+    public LP fontCss;
 
     public LP messageException;
     public LP dateException;
@@ -121,6 +129,9 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
     public LP maxTotalMemoryComputerDateTimeFromDateTimeTo;
     public LP minUsedMemoryComputerDateTimeFromDateTimeTo;
     public LP maxUsedMemoryComputerDateTimeFromDateTimeTo;
+
+    public LP subscription;
+    public LP clientId;
 
     public NavigatorElement logo;
 
@@ -161,6 +172,10 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
         onStarted = findAction("onStartedApply[]");
         onFinallyStarted = findAction("onFinallyStartedApply[]");
 
+        shareAction = findAction("shareAction[STRING]");
+
+        initCurrentSize = findAction("initCurrentSize[]");
+
         useBootstrap = findProperty("useBootstrap[DesignEnv]");
         contentWordWrap = findProperty("contentWordWrap[DesignEnv]");
         serverTheme = findProperty("serverTheme[]");
@@ -191,6 +206,7 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
         javaVersionConnection = findProperty("javaVersion[Connection]");
         is64JavaConnection = findProperty("is64Java[Connection]");
         screenSizeConnection = findProperty("screenSize[Connection]");
+        scaleConnection = findProperty("scale[Connection]");
         clientTypeConnection = findProperty("clientType[Connection]");
         connectionStatusConnection = (LP<PropertyInterface>) findProperty("connectionStatus[Connection]");
         lastActivity = findProperty("lastActivity[Connection]");
@@ -199,6 +215,9 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
         launchConnection = findProperty("launch[Connection]");
 
         currentLaunch = findProperty("currentLaunch[]");
+
+        paddingCss = findProperty("paddingCss[Size]");
+        fontCss = findProperty("fontCss[Size]");
 
         // Ошибки выполнения
         messageException = findProperty("message[Exception]");
@@ -231,6 +250,9 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
         maxTotalMemoryComputerDateTimeFromDateTimeTo = findProperty("maxTotalMemoryFromTo[Computer,DATETIME,DATETIME]");
         minUsedMemoryComputerDateTimeFromDateTimeTo = findProperty("minUsedMemoryFromTo[Computer,DATETIME,DATETIME]");
         maxUsedMemoryComputerDateTimeFromDateTimeTo = findProperty("maxUsedMemoryFromTo[Computer,DATETIME,DATETIME]");
+
+        subscription = findProperty("subscription[Connection]");
+        clientId = findProperty("clientId[Connection]");
 
         logo = findNavigatorElement("logoAction");
 //        logo.elementClass = "navbar-icon-xlarge navbar-excel-mobile-hidden"; // set in lsf

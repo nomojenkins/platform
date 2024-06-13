@@ -652,7 +652,7 @@ propertyEditCustomView returns [String customEditorFunction]
 listViewType returns [ListViewType type, PivotOptions options, String customRenderFunction, FormLPUsage customOptions, String mapTileProvider]
 	:   'PIVOT' {$type = ListViewType.PIVOT;} opt = pivotOptions {$options = $opt.options; }
 	|   'MAP' (tileProvider = stringLiteral)? {$type = ListViewType.MAP; $mapTileProvider = $tileProvider.val;}
-	|   'CUSTOM' function=stringLiteral {$type = ListViewType.CUSTOM; $customRenderFunction = $function.val;} (('HEADER' | 'OPTIONS') decl=customOptionsGroupObjectContext { $customOptions = $decl.customOptions; })?
+	|   'CUSTOM' function=stringLiteral {$type = ListViewType.CUSTOM; $customRenderFunction = $function.val;} ('HEADER' decl=customOptionsGroupObjectContext { $customOptions = $decl.customOptions; })?
 	|   'CALENDAR' {$type = ListViewType.CALENDAR;}
     ;
 
@@ -3899,11 +3899,12 @@ confirmActionDefinitionBody[List<TypedParameter> context] returns [LAWithParams 
 }
 @after {
 	if (inMainParseState()) {
-		$action = self.addScriptedConfirmProp($pe.property, $dDB.action, $dDB.elseAction, yesNo, context, newContext);
+		$action = self.addScriptedConfirmProp($mpe.property, $hpe.property, $dDB.action, $dDB.elseAction, yesNo, context, newContext);
 	}
 }
 	:	'ASK'
-        pe=propertyExpression[context, false]
+        mpe=propertyExpression[context, false]
+        ('HEADER' hpe=propertyExpression[context, false])?
         { newContext = new ArrayList<TypedParameter>(context); }
 	    ((varID=ID { if (inMainParseState()) { self.getParamIndex(self.new TypedParameter("BOOLEAN", $varID.text), newContext, true, insideRecursion); } } EQ)? 'YESNO' { yesNo = true;} )?
         dDB=doInputBody[context, newContext]
@@ -3916,11 +3917,12 @@ messageActionDefinitionBody[List<TypedParameter> context, boolean dynamic] retur
 }
 @after {
 	if (inMainParseState()) {
-		$action = self.addScriptedMessageProp($pe.property, noWait, log);
+		$action = self.addScriptedMessageProp($mpe.property, $hpe.property, noWait, log);
 	}
 }
 	:	'MESSAGE'
-	    pe=propertyExpression[context, dynamic]
+	    mpe=propertyExpression[context, dynamic]
+	    ('HEADER' hpe=propertyExpression[context, dynamic])?
 	    (
 	        sync = syncTypeLiteral { noWait = !$sync.val; }
 	    |   'LOG' {  log = true; }
@@ -4889,7 +4891,8 @@ windowCreateStatement
 		self.addScriptedWindow(isNative, $name.name, $name.caption, $opts.options);
 	}
 }
-	:	'WINDOW' name=simpleNameWithCaption ('NATIVE' { isNative = true; })? opts=windowOptions  ';'
+    //'TOOLBAR' is backward compatibility in 6.0, will be removed in 7.0
+	:	'WINDOW' name=simpleNameWithCaption ('NATIVE' { isNative = true; })? 'TOOLBAR'? opts=windowOptions  ';'
 	;
 
 windowHideStatement

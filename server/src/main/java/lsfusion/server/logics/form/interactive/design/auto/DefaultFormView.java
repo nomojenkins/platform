@@ -256,29 +256,36 @@ public class DefaultFormView extends FormView {
         PropertyDrawView closeFunction = get(entity.closeActionPropertyDraw);
         setupFormButton(closeFunction);
 
-        PropertyDrawView shareFunction = get(entity.shareActionPropertyDraw);
-        setupFormButton(shareFunction);
+        PropertyDrawView shareFunction = null;
+        if(entity.shareActionPropertyDraw != null) {
+            shareFunction = get(entity.shareActionPropertyDraw);
+            setupFormButton(shareFunction);
+        }
 
         PropertyDrawView logMessage = get(entity.logMessagePropertyDraw);
 
         toolbarLeftContainer.add(logMessage, version); // otherwise it will go to OBJECTS container which has types COLUMNS and this type doesnt respect SHOWIF
 
         boolean toolbarTopLeft = Settings.get().isToolbarTopLeft();
-        if(toolbarTopLeft) {
+        if (toolbarTopLeft) {
             toolbarRightContainer.add(okFunction, version);
             toolbarRightContainer.add(closeFunction, version);
+        } else {
+            toolbarRightContainer.add(refreshFunction, version);
         }
         toolbarRightContainer.add(dropFunction, version);
         toolbarRightContainer.add(applyFunction, version);
         toolbarRightContainer.add(cancelFunction, version);
-        if(!toolbarTopLeft) {
+        if (toolbarTopLeft) {
+            toolbarRightContainer.add(refreshFunction, version);
+        } else {
             toolbarRightContainer.add(okFunction, version);
             toolbarRightContainer.add(closeFunction, version);
         }
-        toolbarRightContainer.add(refreshFunction, version);
 
         popupContainer.add(editFunction, version);
-        popupContainer.add(shareFunction, version);
+        if(shareFunction != null)
+            popupContainer.add(shareFunction, version);
     }
 
     private void setupFormButton(PropertyDrawView action) {
