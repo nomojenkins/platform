@@ -267,6 +267,7 @@ moduleHeader
 	String namespaceName = null;
 }
 
+
 @after {
 	if (inPreParseState()) {
 		self.initScriptingModule($name.text, namespaceName, requiredModules, namespacePriority);
