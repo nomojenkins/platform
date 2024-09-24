@@ -5952,7 +5952,7 @@ PRIMITIVE_TYPE  :	'INTEGERTEST' | 'DOUBLE' | 'LONG' | 'BOOLEAN' | 'TBOOLEAN' | '
 				|	('STRING' ('[' DIGITS ']')?) | ('ISTRING' ('[' DIGITS ']')?) | 'NUMERIC' ('[' DIGITS ',' DIGITS ']')? | 'COLOR'
 				|   ('INTERVAL' ('[' INTERVAL_TYPE ']'))
 				|   'TSVECTOR' | 'TSQUERY';
-JSON_TYPE       :   'JSON';
+JSON_TYPE       :   'JSONTEST';
 JSON_TEXT_TYPE  :   'JSONTEXT';
 HTML_TYPE       :   'HTML';
 LOGICAL_LITERAL :	'TRUE' | 'FALSE';
