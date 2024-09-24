@@ -5944,7 +5944,7 @@ fragment STRING_META_FRAGMENT : ('###' | '##')? (NEXTID_FRAGMENT ('###' | '##'))
 
 fragment INTERVAL_TYPE : 'DATET' | 'DATETIMETEST' | 'TIME' | 'ZDATETIME';
 
-PRIMITIVE_TYPE  :	'INTEGER' | 'DOUBLE' | 'LONG' | 'BOOLEAN' | 'TBOOLEAN' | 'DATE' | ('DATETIME' ('[' '0'..'6' ']')?) | ('ZDATETIME' ('[' '0'..'6' ']')?) | 'YEAR'
+PRIMITIVE_TYPE  :	'INTEGERTEST' | 'DOUBLE' | 'LONG' | 'BOOLEAN' | 'TBOOLEAN' | 'DATE' | ('DATETIME' ('[' '0'..'6' ']')?) | ('ZDATETIME' ('[' '0'..'6' ']')?) | 'YEAR'
                 |   'TEXT' | 'RICHTEXT' | 'HTMLTEXT' | ('TIME' ('[' '0'..'6' ']')?) | 'WORDFILE' | 'IMAGEFILE' | 'PDFFILE' | 'VIDEOFILE' | 'DBFFILE' | 'RAWFILE'
 				| 	'FILE' | 'EXCELFILE' | 'TEXTFILE' | 'CSVFILE' | 'HTMLFILE' | 'JSONFILE' | 'XMLFILE' | 'TABLEFILE' | 'NAMEDFILE'
 				|   'WORDLINK' | 'IMAGELINK' | 'PDFLINK' | 'VIDEOLINK' | 'DBFLINK'
