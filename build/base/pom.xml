@@ -12,6 +12,7 @@
         <lsfusion.public.repo>https://repo.lsfusion.org/nexus/repository/publictest</lsfusion.public.repo>
         <lsfusion.snapshots.repo>https://repo.lsfusion.org/nexus/repository/snapshotstest</lsfusion.snapshots.repo>
         
+        
         <!-- MAVEN PLUGIN VERSIONS -->
         <aspectj.version>1.9.2</aspectj.version>
 
