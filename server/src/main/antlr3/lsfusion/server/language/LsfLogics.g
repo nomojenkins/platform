@@ -5942,7 +5942,7 @@ fragment ID_META_FRAGMENT : ('###' | '##')? ID_FRAGMENT (('###' | '##') NEXTID_F
 fragment STRING_META_SUFFIX_FRAGMENT : (('###' | '##') (NEXTID_FRAGMENT | STRING_LITERAL_FRAGMENT))*;
 fragment STRING_META_FRAGMENT : ('###' | '##')? (NEXTID_FRAGMENT ('###' | '##'))* STRING_LITERAL_FRAGMENT STRING_META_SUFFIX_FRAGMENT;
 
-fragment INTERVAL_TYPE : 'DATET' | 'DATETIMETEST' | 'TIME' | 'ZDATETIME';
+fragment INTERVAL_TYPE : 'DATET' | 'DATETIME' | 'TIME' | 'ZDATETIME';
 
 PRIMITIVE_TYPE  :	'INTEGERTEST' | 'DOUBLE' | 'LONG' | 'BOOLEAN' | 'TBOOLEAN' | 'DATE' | ('DATETIME' ('[' '0'..'6' ']')?) | ('ZDATETIME' ('[' '0'..'6' ']')?) | 'YEAR'
                 |   'TEXT' | 'RICHTEXT' | 'HTMLTEXT' | ('TIME' ('[' '0'..'6' ']')?) | 'WORDFILE' | 'IMAGEFILE' | 'PDFFILE' | 'VIDEOFILE' | 'DBFFILE' | 'RAWFILE'
