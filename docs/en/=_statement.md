@@ -11,6 +11,7 @@ name [caption] [(param1, ..., paramN)] = expression [options];
 name [caption] [(param1, ..., paramN)] = contextIndependentOperator [options];
 
 name [caption] [(param1, ..., paramN)] = NATIVE returnClass (argClass1, ..., argClassM) [options];
+
 ```
 
 ### Description
