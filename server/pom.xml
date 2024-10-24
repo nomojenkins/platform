@@ -18,6 +18,7 @@
     </properties>
 
     <build>
+        
         <!-- multiple inheritance : abstract-logics --> <!-- server is also a logics -->
         <resources>
             <!-- lsfusion project structure : mark resource directories -->
