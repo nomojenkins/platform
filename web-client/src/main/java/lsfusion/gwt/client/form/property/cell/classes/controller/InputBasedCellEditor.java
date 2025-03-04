@@ -69,13 +69,13 @@ public abstract class InputBasedCellEditor extends RequestReplaceValueCellEditor
             this.oldValue = getInputValue();
 
             if(notFocusable) // binding or mouse change on not focusable property
-                FocusUtils.focus(inputElement, FocusUtils.Reason.NOTFOCUSABLE);
+                FocusUtils.focus(inputElement, FocusUtils.Reason.NOTFOCUSABLE, handler.event);
         }
 
         CellRenderer.setIsEditing(parent, inputElement, true);
 
         if(!needReplace) {
-            parent.addClassName("property-hide-toolbar");
+            GwtClientUtils.addClassName(parent, "property-hide-toolbar");
 
             handler.consume(true, false);
         }
@@ -84,7 +84,7 @@ public abstract class InputBasedCellEditor extends RequestReplaceValueCellEditor
     @Override
     public void stop(Element parent, boolean cancel, boolean blurred) {
         if (!needReplace(parent)) {
-            parent.removeClassName("property-hide-toolbar");
+            GwtClientUtils.removeClassName(parent, "property-hide-toolbar");
 
             setInputValue(parent, oldValue);
         }
@@ -147,4 +147,5 @@ public abstract class InputBasedCellEditor extends RequestReplaceValueCellEditor
         if(!GwtClientUtils.isTDorTH(cellParent))
             GwtClientUtils.clearFlexParentElement(cellParent);
     }
+
 }

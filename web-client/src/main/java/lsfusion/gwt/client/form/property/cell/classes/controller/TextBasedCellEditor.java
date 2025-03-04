@@ -116,20 +116,7 @@ public abstract class TextBasedCellEditor extends InputBasedCellEditor {
     protected String pattern;
     protected JavaScriptObject mask;
 
-    @Override
-    public void start(EventHandler handler, Element parent, RenderContext renderContext, boolean notFocusable, PValue oldValue) {
-
-        if(GMouseStroke.isChangeEvent(handler.event)) {
-            Integer dialogInputActionIndex = property.getDialogInputActionIndex(actions);
-            if (dialogInputActionIndex != null) {
-                commitFinish(oldValue, dialogInputActionIndex, CommitReason.FORCED);
-                return;
-            }
-        }
-        started = true;
-
-        super.start(handler, parent, renderContext, notFocusable, oldValue);
-
+    protected boolean startText(EventHandler handler, Element parent, RenderContext renderContext, PValue oldValue) {
         if(!isNative()) {
             pattern = renderContext.getPattern();
             mask = getMaskFromPattern();
@@ -142,21 +129,36 @@ public abstract class TextBasedCellEditor extends InputBasedCellEditor {
         }
 
         boolean allSuggestions = true;
-        if(needReplace(parent)) {
-            boolean selectAll = !GKeyStroke.isChangeAppendKeyEvent(handler.event);
+        boolean selectAll = false;
+        String value = null;
+        boolean explicitValue = false;
+        boolean needReplace = needReplace(parent);
+        if(needReplace) {
+            selectAll = !GKeyStroke.isChangeAppendKeyEvent(handler.event);
 
-            String value = checkStartEvent(handler.event, parent, this::checkInputValidity);
-            if(value != null) {
-                allSuggestions = false;
-                selectAll = false;
-            } else
-                value = (property.clearText ? "" : tryFormatInputText(oldValue));
+            value = checkStartEvent(handler.event, parent, this::checkInputValidity);
+        }
 
+        if(value != null) {
+            allSuggestions = false;
+            selectAll = false;
+            explicitValue = true;
+        } else {
+            value = (property.clearText ? "" : tryFormatInputText(oldValue));
+
+            if (!needReplace) {
+                if (this.oldValue.equals(value))
+                    value = null; // sort of optimization (usually oldValue == value when hasOldValue in the upper stack is false, but we don't want to pull that parameter here + sometimes old value differs from new value, when renderer has different formatter than editor - for example echo symbols or number formatting)
+                else
+                    selectAll = true; // when value is changed it's better to select entire value to return the caret
+            }
+        }
+
+        if(value != null)
             setTextInputValue(value);
 
-            if (selectAll && !property.notSelectAll)
-                inputElement.select();
-        } // assert !hasOldValue
+        if (selectAll && !property.notSelectAll)
+            inputElement.select();
 
         if (hasList && !isNative()) {
             suggestBox = createSuggestBox(inputElement, parent);
@@ -178,6 +180,25 @@ public abstract class TextBasedCellEditor extends InputBasedCellEditor {
         if (regexpMessage != null) {
             updateRegexpMessage(inputElement, regexpMessage);
         }
+
+        return explicitValue;
+    }
+
+    @Override
+    public void start(EventHandler handler, Element parent, RenderContext renderContext, boolean notFocusable, PValue oldValue) {
+
+        if(GMouseStroke.isChangeEvent(handler.event)) {
+            Integer dialogInputActionIndex = property.getDialogInputActionIndex(actions);
+            if (dialogInputActionIndex != null) {
+                commitFinish(oldValue, dialogInputActionIndex, CommitReason.FORCED);
+                return;
+            }
+        }
+        started = true;
+
+        super.start(handler, parent, renderContext, notFocusable, oldValue);
+
+        startText(handler, parent, renderContext, oldValue);
     }
 
     protected JavaScriptObject getMaskFromPattern() {
@@ -289,9 +310,14 @@ public abstract class TextBasedCellEditor extends InputBasedCellEditor {
         int cursorPosition = textBoxImpl.getCursorPos(inputElement);
         int selectionLength = textBoxImpl.getSelectionLength(inputElement);
         String currentValue = getTextInputValue();
-        String firstPart = currentValue == null ? "" : currentValue.substring(0, cursorPosition);
-        String secondPart = currentValue == null ? "" : currentValue.substring(cursorPosition + selectionLength);
 
+//        When opening the form and moving by keyboard to the date field and entering any digit from the keyboard
+//        get an error: IndexOutOfBoundsException. E.g. because currentValue != null, but just an empty string, and cursorPosition + selectionLength = 10
+//        this error occurs only when running through the idea! If you build .war and run on tomcat, this error is not present at all.
+//        that's why added the extra checks
+        String firstPart = currentValue != null && cursorPosition <= currentValue.length() ? currentValue.substring(0, cursorPosition) : "";
+        int beginIndex = cursorPosition + selectionLength;
+        String secondPart = currentValue != null && beginIndex <= currentValue.length() ? currentValue.substring(beginIndex) : "";
         return isStringValid(firstPart + stringToAdd + secondPart);
     }
 
@@ -403,8 +429,9 @@ public abstract class TextBasedCellEditor extends InputBasedCellEditor {
                 final SuggestBox.Callback callback = currentCallback;
                 currentCallback = null;
 
-                boolean emptyQuery = request.query == null;
                 String query = nvl(request.query, "");
+                boolean emptyQuery = query.isEmpty();
+
 //                if(prevSucceededEmptyQuery != null && query.startsWith(prevSucceededEmptyQuery))
 //                    return;
 
@@ -534,7 +561,7 @@ public abstract class TextBasedCellEditor extends InputBasedCellEditor {
 //                FlexPanel bottomPanel = new FlexPanel(true);
 
                 FlexPanel buttonsPanel = new FlexPanel();
-                buttonsPanel.getElement().addClassName("dropdown-menu-button-panel");
+                GwtClientUtils.addClassName(buttonsPanel.getElement(), "dropdown-menu-button-panel");
 
                 // block mouse down events to prevent focus issues
                 buttonsPanel.addDomHandler(GwtClientUtils::stopPropagation, MouseDownEvent.getType());
@@ -577,8 +604,8 @@ public abstract class TextBasedCellEditor extends InputBasedCellEditor {
             protected Widget createInfoPanel(Element parent) {
                 if (isFilterList()) {
                     HTML tip = new HTML(compare == CONTAINS ? messages.suggestBoxContainsTip() : messages.suggestBoxMatchTip(MainFrame.matchSearchSeparator));
-                    tip.getElement().addClassName("dropdown-menu-tip");
-                    tip.getElement().addClassName("text-secondary");
+                    GwtClientUtils.addClassName(tip.getElement(), "dropdown-menu-tip");
+                    GwtClientUtils.addClassName(tip.getElement(), "text-secondary");
                     return tip;
                 }
                 return null;

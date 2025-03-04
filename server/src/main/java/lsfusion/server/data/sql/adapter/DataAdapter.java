@@ -66,13 +66,11 @@ public abstract class DataAdapter extends AbstractConnectionPool implements Type
         this.instance = instance;
     }
 
-    public void ensure(boolean cleanDB) throws Exception {
+    public void ensureDBConnection(boolean cleanDB) throws Exception {
         ensureDB(cleanDB);
 
         ensureConnection = startConnection();
         ensureConnection.setAutoCommit(true);
-
-        ensureSqlFuncs();
     }
 
     public static List<String> getAllDBNames() {
@@ -95,19 +93,26 @@ public abstract class DataAdapter extends AbstractConnectionPool implements Type
 
     public abstract String getDBName();
 
-    protected void ensureSqlFuncs() throws IOException, SQLException {
+    public void ensureSqlFuncs() throws IOException, SQLException {
         executeEnsure(findSQLScripts());
     }
 
     public void ensureLogLevel() {
     }
 
+    public boolean checkBackupParams(ExecutionContext context) {
+        return false;
+    }
+
     public String getBackupFilePath(String dumpFileName) {
         return null;
     }
 
-    public String backupDB(ExecutionContext context, String dumpFileName, int threadCount, List<String> excludeTables) throws IOException {
+    public String getBackupFileLogPath(String dumpFileName) {
         return null;
+    }
+
+    public void backupDB(ExecutionContext context, String dumpFileName, int threadCount, List<String> excludeTables) throws IOException {
     }
 
     public String customRestoreDB(String fileBackup, Set<String> tables, boolean isMultithread) throws IOException {

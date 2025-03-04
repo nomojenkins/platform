@@ -80,21 +80,26 @@ public class GPivot extends GStateTableView implements ColorThemeChangeListener,
         super(formController, gridController, tableContainer);
         this.selectedProperty = selectedProperty;
 
-        setStyleName(getDrawElement(), "pivotTable");
+        GwtClientUtils.addClassName(getDrawElement(), "pivotTable");
 
         MainFrame.addColorThemeChangeListener(this);
 
         GwtClientUtils.setZeroZIndex(getElement());
     }
 
+    public String getTDValue(Element th) {
+        return th.getPropertyString("column");
+    }
     public void renderTD(Element th, boolean rerender, boolean defaultHeaderHeight, Boolean sortDir, JavaScriptObject captionValue) {
         String caption = fromObject(captionValue).toString();
         Column column = columnMap.get(caption);
 
         if(column != null) {
-            GGridPropertyTableHeader.renderTD(th, rerender, sortDir, caption, null, null, true, column.property, null, grid.groupObject.grid);
+            GPropertyDraw property = column.property;
+            GGridPropertyTableHeader.renderTD(th, rerender, sortDir, caption, property != null ? property.captionElementClass : null, property != null ? property.appImage : null, true, property, null, grid.groupObject.grid);
         }
 
+        th.setPropertyString("column", caption);
         th.setTitle(caption);
     }
 
@@ -275,7 +280,10 @@ public class GPivot extends GStateTableView implements ColorThemeChangeListener,
         config = overrideCallbacks(config, getCallbacks());
         config = overrideRendererOptions(config, getRendererOptions(configFunction, getPropertyCaptionsMap()));
 
-        setStyleName(getDrawElement(), "pivotTable-noSettings", !settings);
+        if (!settings)
+            GwtClientUtils.addClassName(getDrawElement(), "pivotTable-noSettings");
+        else
+            GwtClientUtils.removeClassName(getDrawElement(), "pivotTable-noSettings");
 
         render(getDrawElement(), getPageSizeWidget().getElement(), data, config, GwtClientUtils.toArray(aggrCaptions), GwtClientUtils.getCurrentLanguage()); // we need to updateRendererState after it is painted
     }
@@ -1211,6 +1219,10 @@ public class GPivot extends GStateTableView implements ColorThemeChangeListener,
         return font;
     }
 
+    public String getCellValue(Element jsElement) {
+        return getTDValue(jsElement);
+    }
+
     public void renderColAttrCell(Element jsElement, boolean rerender, JavaScriptObject value, JsArrayMixed colKeyValues, Boolean isSubtotal, Boolean isExpanded, Boolean isArrow) {
         if (isArrow) {
             GPropertyTableBuilder.renderTD(jsElement);
@@ -1547,7 +1559,7 @@ public class GPivot extends GStateTableView implements ColorThemeChangeListener,
         int width = 0;
         for (int i = 0; i < cols.length(); ++i) {
             String column = cols.get(i);
-            if (!column.equals(COLUMN)) {
+            if (column != null && !column.equals(COLUMN)) {
                 width = Math.max(width, getColumnMapWidth(column));
             }
         }
@@ -1860,7 +1872,9 @@ public class GPivot extends GStateTableView implements ColorThemeChangeListener,
             Element cell = cells.getItem(i);
             if(i == 0)
                 left = cell.getOffsetLeft();
-            cell.addClassName(header ? "pvtStickyHeader" : "pvtStickyCell");
+            GwtClientUtils.addClassName(cell, header ? "data-grid-sticky-header" : "data-grid-sticky-cell");
+            if (i == cells.getLength() - 1)
+                GwtClientUtils.addClassName(cell, "last-sticked");
             cell.getStyle().setProperty("left", left + "px");
             left += cell.getOffsetWidth();
         }
@@ -1933,7 +1947,11 @@ public class GPivot extends GStateTableView implements ColorThemeChangeListener,
             renderAxisHeaderCell: function (element, value, attrName, isExpanded, isArrow) {
                 instance.@lsfusion.gwt.client.form.object.table.grid.view.GPivot::renderAxisCell(*)(element, false, value, attrName, isExpanded, isArrow);
             },
-            
+
+            getHeaderCellValue: function (element) {
+                return instance.@lsfusion.gwt.client.form.object.table.grid.view.GPivot::getCellValue(*)(element);
+            },
+
             getColumnWidth: function (isAttributeColumn, colKeyValues, axisValues, isArrow, arrowLevels) {
                 return instance.@GPivot::getColumnWidth(*)(isAttributeColumn, colKeyValues, axisValues, isArrow, arrowLevels);
             },

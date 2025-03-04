@@ -2,6 +2,7 @@ package lsfusion.http.authentication;
 
 import lsfusion.base.Pair;
 import lsfusion.http.controller.LogicsRequestHandler;
+import lsfusion.http.controller.MainController;
 import lsfusion.http.provider.logics.LogicsProvider;
 import lsfusion.http.provider.navigator.NavigatorProviderImpl;
 import lsfusion.interop.base.exception.LockedException;
@@ -11,8 +12,7 @@ import lsfusion.interop.connection.AuthenticationToken;
 import lsfusion.interop.connection.LocalePreferences;
 import lsfusion.interop.connection.authentication.PasswordAuthentication;
 import lsfusion.interop.logics.LogicsSessionObject;
-import lsfusion.interop.logics.remote.RemoteLogicsInterface;
-import lsfusion.interop.session.SessionInfo;
+import lsfusion.interop.session.ExternalRequest;
 import org.json.JSONObject;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.InternalAuthenticationServiceException;
@@ -35,6 +35,17 @@ public class LSFRemoteAuthenticationProvider extends LogicsRequestHandler implem
         super(logicsProvider);
     }
 
+    protected static Locale getUserLocale(LogicsSessionObject sessionObject, Authentication auth, AuthenticationToken authToken, HttpServletRequest request) throws RemoteException {
+        try {
+            JSONObject localeObject = new JSONObject(MainController.sendRequest(authToken, request, new ExternalRequest.Param[0], sessionObject, NavigatorProviderImpl.getConnectionInfo(auth), "Authentication.getCurrentUserLocale"));
+            String language = localeObject.optString("language");
+            String country = localeObject.optString("country");
+            return LocalePreferences.getLocale(language, country);
+        } catch (Exception e) {
+            return Locale.getDefault();
+        }
+    }
+
     @Override
     public Authentication authenticate(final Authentication authentication) throws AuthenticationException {
         if(authentication instanceof LSFAuthenticationToken) // already authenticated with LSFAuthTokenFilter
@@ -47,7 +58,7 @@ public class LSFRemoteAuthenticationProvider extends LogicsRequestHandler implem
             Pair<AuthenticationToken, Locale> authLocale = runRequest(request, (sessionObject, retry) -> {
                 try {
                     AuthenticationToken authToken = sessionObject.remoteLogics.authenticateUser(new PasswordAuthentication(username, password));
-                    return new Pair<>(authToken, getUserLocale(sessionObject.remoteLogics, authentication, authToken, request));
+                    return new Pair<>(authToken, getUserLocale(sessionObject, authentication, authToken, request));
                 } catch (LoginException le) {
                     throw new UsernameNotFoundException(le.getMessage());
                 } catch (LockedException le) {
@@ -63,18 +74,6 @@ public class LSFRemoteAuthenticationProvider extends LogicsRequestHandler implem
             userData.put("username", username);
             request.getSession(true).setAttribute("USER_DATA", userData);
             throw new InternalAuthenticationServiceException(e.getMessage()); //need to throw AuthenticationException for SpringSecurity to redirect to /login
-        }
-    }
-
-    protected static Locale getUserLocale(RemoteLogicsInterface remoteLogics, Authentication auth, AuthenticationToken authToken, HttpServletRequest request) throws RemoteException {
-        try {
-            SessionInfo sessionInfo = NavigatorProviderImpl.getSessionInfo(auth, request);
-            JSONObject localeObject = LogicsSessionObject.getJSONObjectResult(remoteLogics.exec(authToken, sessionInfo, "Authentication.getCurrentUserLocale", sessionInfo.externalRequest));
-            String language = localeObject.optString("language");
-            String country = localeObject.optString("country");
-            return LocalePreferences.getLocale(language, country);
-        } catch (Exception e) {
-            return Locale.getDefault();
         }
     }
 

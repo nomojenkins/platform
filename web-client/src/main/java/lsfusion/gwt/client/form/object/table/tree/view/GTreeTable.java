@@ -15,7 +15,6 @@ import lsfusion.gwt.client.base.jsni.NativeSIDMap;
 import lsfusion.gwt.client.base.size.GSize;
 import lsfusion.gwt.client.base.view.ColorUtils;
 import lsfusion.gwt.client.base.view.EventHandler;
-import lsfusion.gwt.client.base.view.FlexPanel;
 import lsfusion.gwt.client.base.view.grid.Column;
 import lsfusion.gwt.client.base.view.grid.DataGrid;
 import lsfusion.gwt.client.base.view.grid.cell.Cell;
@@ -118,7 +117,7 @@ public class GTreeTable extends GGridPropertyTable<GTreeGridRecord> {
         };
 
         if(treeGroupController.isExpandOnClick())
-            form.addBinding(new GMouseInputEvent(GMouseInputEvent.DBLCLK)::isEvent, new GBindingEnv(100, GBindingMode.ONLY, null, GBindingMode.ONLY, null, null, null, null),
+            form.addBinding(new GMouseInputEvent(GMouseInputEvent.DBLCLK)::isEvent, new GBindingEnv(100, GBindingMode.ONLY, null, null, GBindingMode.ONLY, null, null, null, null),
                     () -> {
                         GTreeObjectTableNode node = getExpandSelectedNode();
                         return node != null && node.isExpandable();
@@ -182,7 +181,6 @@ public class GTreeTable extends GGridPropertyTable<GTreeGridRecord> {
     private final static String TREE_NODE_ATTRIBUTE = "__tree_node";
 
     public static void renderExpandDom(Element cellElement, GTreeColumnValue treeValue) {
-        FlexPanel.setGridHeight(cellElement, GSize.ZERO); // somewhy it's needed for proper indent showing
         for (int i = 0; i <= treeValue.level; i++) {
             DivElement img = createIndentElement(cellElement);
             updateIndentElement(img, treeValue, i);
@@ -192,39 +190,41 @@ public class GTreeTable extends GGridPropertyTable<GTreeGridRecord> {
     private static String IMAGE = "img";
 
     private static DivElement createIndentElement(Element cellElement) {
-        DivElement div = cellElement.appendChild(Document.get().createDivElement());
+        DivElement div = Document.get().createDivElement();
+        cellElement.appendChild(div);
+        GwtClientUtils.setupPercentParent(div);
+
         div.getStyle().setFloat(Style.Float.LEFT);
+        div.getStyle().setWidth(16, Style.Unit.PX); // indent width
 
-        // in firefox browser there is a problem with rendering first column of TREE and PIVOT (incorrect indentation) if height 100% is set to div
-        // changing height from 100% to 1rem solves the problem
-        if (GwtClientUtils.isFirefoxUserAgent())
-            div.getStyle().setProperty("height", "1rem");
-        else
-            div.getStyle().setHeight(100, Style.Unit.PCT);
-
-        div.getStyle().setWidth(16, Style.Unit.PX);
-
-        DivElement vert = Document.get().createDivElement();
-        vert.getStyle().setWidth(16, Style.Unit.PX);
-        vert.getStyle().setHeight(100, Style.Unit.PCT);
-
-        DivElement top = vert.appendChild(Document.get().createDivElement());
-        top.getStyle().setHeight(MainFrame.useBootstrap ? 0 : 50, Style.Unit.PCT);
-
-        DivElement bottom = vert.appendChild(Document.get().createDivElement());
-        bottom.getStyle().setHeight(MainFrame.useBootstrap ? 100 : 50, Style.Unit.PCT);
-        bottom.getStyle().setPosition(Style.Position.RELATIVE);
-
-        Element img = bottom.appendChild(StaticImage.TREE_EMPTY.createImage()); //need some initial value
-        img.getStyle().setPosition(Style.Position.ABSOLUTE);
+        Element img = StaticImage.TREE_EMPTY.createImage();
+        div.setPropertyObject(IMAGE, img);
 
         if (!MainFrame.useBootstrap) {
+            DivElement vert = Document.get().createDivElement();
+            div.appendChild(vert);
+            GwtClientUtils.setupPercentParent(vert);
+
+            DivElement top = vert.appendChild(Document.get().createDivElement());
+            top.getStyle().setHeight(MainFrame.useBootstrap ? 0 : 50, Style.Unit.PCT);
+
+            DivElement bottom = vert.appendChild(Document.get().createDivElement());
+            bottom.getStyle().setHeight(MainFrame.useBootstrap ? 100 : 50, Style.Unit.PCT);
+            bottom.appendChild(img); //need some initial value
+
+            bottom.getStyle().setPosition(Style.Position.RELATIVE);
             img.getStyle().setTop(-8, Style.Unit.PX);
+            img.getStyle().setPosition(Style.Position.ABSOLUTE);
+        } else {
+            div.appendChild(img);
+
+            GwtClientUtils.addClassName(div, "wrap-text-not-empty");
+            GwtClientUtils.addClassName(div, "wrap-img-horz");
+            GwtClientUtils.addClassName(div, "wrap-img-start");
+
+            GwtClientUtils.addClassName(img, "wrap-text-img");
         }
-
-        vert.setPropertyObject(IMAGE, img);
-
-        return div.appendChild(vert);
+        return div;
     }
 
     private static void updateIndentElement(DivElement element, GTreeColumnValue treeValue, int indentLevel) {
@@ -243,40 +243,43 @@ public class GTreeTable extends GGridPropertyTable<GTreeGridRecord> {
             indentIcon = getNodeIcon(treeValue);
         }
 
-        if (StaticImage.TREE_PASSBY.equals(indentIcon)) {
-            changeDots(element, true, true);
-        } else if (StaticImage.TREE_BRANCH.equals(indentIcon)) {
-            if (treeValue.lastInLevelMap[indentLevel]) {
-                changeDots(element, true, false); //end
-            } else {
-                changeDots(element, true, true); //branch
+        if(!MainFrame.useBootstrap) {
+            if (StaticImage.TREE_PASSBY.equals(indentIcon)) {
+                changeDots(element, true, true);
+            } else if (StaticImage.TREE_BRANCH.equals(indentIcon)) {
+                if (treeValue.lastInLevelMap[indentLevel]) {
+                    changeDots(element, true, false); //end
+                } else {
+                    changeDots(element, true, true); //branch
+                }
+            } else if (StaticImage.TREE_EMPTY.equals(indentIcon) || StaticImage.TREE_LEAF.equals(indentIcon)) {
+                changeDots(element, false, false);
+            } else if (StaticImage.TREE_CLOSED.equals(indentIcon)) {
+                changeDots(element, false, treeValue.closedDotBottom);
+            } else if (StaticImage.TREE_OPEN.equals(indentIcon)) {
+                changeDots(element, false, treeValue.openDotBottom);
             }
-        } else if (StaticImage.TREE_EMPTY.equals(indentIcon) || StaticImage.TREE_LEAF.equals(indentIcon)) {
-            changeDots(element, false, false);
-        } else if (StaticImage.TREE_CLOSED.equals(indentIcon)) {
-            changeDots(element, false, treeValue.closedDotBottom);
-        }else if (StaticImage.TREE_OPEN.equals(indentIcon)) {
-            changeDots(element, false, treeValue.openDotBottom);
         }
 
         if(StaticImage.TREE_CLOSED.equals(indentIcon)) {
-            img.removeClassName("expanded-image");
-            img.addClassName("collapsed-image");
+            GwtClientUtils.removeClassName(img, "expanded-image");
+            GwtClientUtils.addClassName(img, "collapsed-image");
         } else if(StaticImage.TREE_OPEN.equals(indentIcon)) {
-            img.removeClassName("collapsed-image");
-            img.addClassName("expanded-image");
+            GwtClientUtils.removeClassName(img, "collapsed-image");
+            GwtClientUtils.addClassName(img, "expanded-image");
         } else if(StaticImage.TREE_LEAF.equals(indentIcon)) {
-            img.addClassName("leaf-image");
+            GwtClientUtils.addClassName(img, "leaf-image");
         } else if(StaticImage.TREE_BRANCH.equals(indentIcon)) {
-            img.addClassName("branch-image");
+            GwtClientUtils.addClassName(img, "branch-image");
         } else if (StaticImage.LOADING_ASYNC.equals(indentIcon)) {
-            img.addClassName("loading-async-image");
+            GwtClientUtils.addClassName(img, "loading-async-image");
         }
 
         (StaticImage.TREE_PASSBY.equals(indentIcon) ? StaticImage.TREE_EMPTY : indentIcon).updateImageSrc(img);
     }
 
-    private static void changeDots(DivElement element, boolean dotTop, boolean dotBottom) {
+    private static void changeDots(Element element, boolean dotTop, boolean dotBottom) {
+        element = element.getFirstChildElement(); // vert
         Element top = element.getFirstChild().cast();
         Element bottom = element.getLastChild().cast();
 
@@ -302,15 +305,13 @@ public class GTreeTable extends GGridPropertyTable<GTreeGridRecord> {
     }
 
     private static void ensureDotsAndSetBackground(Element element) {
-        element.addClassName("passby-image");
+        GwtClientUtils.addClassName(element, "passby-image");
 
-        if(!MainFrame.useBootstrap) {
-            GwtClientUtils.setThemeImage(StaticImage.TREE_PASSBY.path, str -> element.getStyle().setBackgroundImage("url('" + str + "')"));
-        }
+        GwtClientUtils.setThemeImage(StaticImage.TREE_PASSBY.path, str -> element.getStyle().setBackgroundImage("url('" + str + "')"));
     }
 
     private static void clearBackground(Element element) {
-        element.removeClassName("passby-image");
+        GwtClientUtils.removeClassName(element, "passby-image");
         element.getStyle().clearBackgroundImage();
     }
 
@@ -435,14 +436,14 @@ public class GTreeTable extends GGridPropertyTable<GTreeGridRecord> {
             }
 
             for (int i = 0; i <= treeValue.level; i++) {
-                DivElement img;
+                DivElement imgContainer;
                 if (i >= cellElement.getChildCount()) {
-                    img = createIndentElement(cellElement);
+                    imgContainer = createIndentElement(cellElement);
                 } else {
-                    img = cellElement.getChild(i).getFirstChild().cast();
+                    imgContainer = cellElement.getChild(i).cast();
                 }
 
-                updateIndentElement(img, treeValue, i);
+                updateIndentElement(imgContainer, treeValue, i);
             }
         }
 
@@ -495,6 +496,11 @@ public class GTreeTable extends GGridPropertyTable<GTreeGridRecord> {
         @Override
         protected AppBaseImage getImage(GPropertyDraw property, GTreeGridRecord record) {
             return record.getImage(property);
+        }
+
+        @Override
+        protected String getGridElementClass(GPropertyDraw property, GTreeGridRecord record) {
+            return record.getGridElementClass(property);
         }
 
         @Override
@@ -865,6 +871,12 @@ public class GTreeTable extends GGridPropertyTable<GTreeGridRecord> {
                         boolean loading = loadingMap != null && PValue.getBooleanValue(loadingMap.get(key));
                         objectRecord.setLoading(property, loading);
 
+                        PValue gridElementClass = null;
+                        NativeHashMap<GGroupObjectValue, PValue> propGridElementClasses = cellGridElementClasses.get(property);
+                        if (propGridElementClasses != null)
+                            gridElementClass = propGridElementClasses.get(key);
+                        objectRecord.setGridElementClass(property, gridElementClass == null ? property.elementClass : PValue.getClassStringValue(gridElementClass));
+
                         PValue valueElementClass = null;
                         NativeHashMap<GGroupObjectValue, PValue> propValueElementClasses = cellValueElementClasses.get(property);
                         if (propValueElementClasses != null)
@@ -1090,6 +1102,11 @@ public class GTreeTable extends GGridPropertyTable<GTreeGridRecord> {
             NativeHashMap<GGroupObjectValue, PValue> propReadOnly = readOnly.get(property);
             return propReadOnly == null ? null : PValue.get3SBooleanValue(propReadOnly.get(getRowKey(cell)));
         }
+        return false;
+    }
+
+    @Override
+    public boolean highlightDuplicateValue(Cell cell, PValue value) {
         return false;
     }
 

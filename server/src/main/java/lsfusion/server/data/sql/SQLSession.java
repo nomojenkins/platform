@@ -7,14 +7,11 @@ import lsfusion.base.col.SetFact;
 import lsfusion.base.col.heavy.concurrent.weak.ConcurrentIdentityWeakHashMap;
 import lsfusion.base.col.heavy.concurrent.weak.ConcurrentWeakHashMap;
 import lsfusion.base.col.heavy.weak.WeakLinkedHashSet;
-import lsfusion.base.col.implementations.HMap;
 import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.MExclMap;
-import lsfusion.base.col.interfaces.mutable.MExclSet;
 import lsfusion.base.col.interfaces.mutable.mapvalue.ImFilterValueMap;
 import lsfusion.base.col.lru.LRUUtil;
 import lsfusion.base.col.lru.LRUWSVSMap;
-import lsfusion.base.lambda.E2Runnable;
 import lsfusion.base.lambda.ERunnable;
 import lsfusion.base.lambda.Provider;
 import lsfusion.server.base.MutableClosedObject;
@@ -29,6 +26,7 @@ import lsfusion.server.data.expr.query.GroupType;
 import lsfusion.server.data.expr.value.ValueExpr;
 import lsfusion.server.data.query.IQuery;
 import lsfusion.server.data.query.Query;
+import lsfusion.server.data.query.compile.CompileOrder;
 import lsfusion.server.data.query.exec.*;
 import lsfusion.server.data.query.exec.materialize.PureTime;
 import lsfusion.server.data.query.exec.materialize.PureTimeInterface;
@@ -59,20 +57,19 @@ import lsfusion.server.data.type.exec.TypeEnvironment;
 import lsfusion.server.data.type.exec.TypePool;
 import lsfusion.server.data.type.parse.AbstractParseInterface;
 import lsfusion.server.data.type.parse.ParseInterface;
-import lsfusion.server.data.type.parse.StringParseInterface;
-import lsfusion.server.data.type.reader.PGObjectReader;
 import lsfusion.server.data.type.reader.Reader;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.data.value.Value;
 import lsfusion.server.data.where.Where;
 import lsfusion.server.data.where.classes.ClassWhere;
-import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.action.session.change.modifier.Modifier;
 import lsfusion.server.logics.action.session.change.modifier.SessionModifier;
 import lsfusion.server.logics.classes.data.ArrayClass;
+import lsfusion.server.logics.classes.data.StringClass;
 import lsfusion.server.logics.classes.data.TSVectorClass;
 import lsfusion.server.logics.classes.data.file.AJSONClass;
+import lsfusion.server.logics.form.stat.LimitOffset;
 import lsfusion.server.logics.form.stat.struct.plain.JDBCTable;
 import lsfusion.server.logics.navigator.controller.env.SQLSessionContextProvider;
 import lsfusion.server.physics.admin.Settings;
@@ -109,7 +106,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static lsfusion.base.BaseUtils.nvl;
-import static lsfusion.server.data.table.IndexOptions.defaultIndexOptions;
 import static lsfusion.server.data.table.IndexType.*;
 import static lsfusion.server.physics.admin.log.ServerLoggers.*;
 
@@ -335,18 +331,24 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
     public boolean inconsistent = false;
 
-    public final static String userParam = "adsadaweewuser";
-    public final static String authTokenParam = "vkljudfshldhfskjhdkjrraae";
-    public final static String isServerRestartingParam = "sdfisserverrestartingpdfdf";
-    public final static String computerParam = "fjruwidskldsor";
-    public final static String formParam = "yfifybdfnenfykfqyth";
-    public final static String connectionParam = "ntreottgjlrkxtybt";
-    public final static String isDevParam = "dsiljdsiowee";
-    public final static String isLightStartParam = "lsiljdsiowee";
-    public final static String inTestModeParam = "gxRbJbuKPuF2ec88Fbio8RJFnxtlPNTgeasEhUX0";
-    public final static String projectLSFDirParam = "XiSupdIyJMMwJSY2AyDDzEOHi6W6TLta658BJHG0";
+    public final static char paramPrefix = '\uE000';
+    public final static char paramPostfix = '\u2063';
+    public final static String userParam = getParamName("user");
+    public final static String authTokenParam = getParamName("authtoken");
+    public final static String isServerRestartingParam = getParamName("isServerRestarting");
+    public final static String computerParam = getParamName("computer");
+    public final static String formParam = getParamName("form");
+    public final static String connectionParam = getParamName("connection");
+    public final static String isDevParam = getParamName("isDev");
+    public final static String isLightStartParam = getParamName("isLightStart");
+    public final static String inTestModeParam = getParamName("inTestMode");
+    public final static String projectLSFDirParam = getParamName("projectLSFDirParam");
+    public final static String limitParam = getParamName("limitParam");
+    public final static String offsetParam = getParamName("offsetParam");
 
-    public final static String limitParam = "sdsnjklirens";
+    public static String getParamName(String param) {
+        return paramPrefix + param + paramPostfix;
+    }
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     private ReentrantLock temporaryTablesLock = new ReentrantLock(true);
@@ -360,6 +362,9 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         typePool = adapter;
         this.contextProvider = contextProvider;
         sqlSessionMap.put(this, 1);
+
+        ServerLoggers.exinfoLog("SQL SESSION OPEN " + this);
+
         Thread currentThread = Thread.currentThread();
         threadDebugInfo = new ThreadDebugInfo(currentThread.getName(),
                 Settings.get().isStacktraceInSQLSession() ? ThreadUtils.getJavaStack(currentThread.getStackTrace()) : null);
@@ -570,11 +575,11 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
     }
 
-    public void startTransaction(int isolationLevel, OperationOwner owner) throws SQLException, SQLHandledException {
-        startTransaction(isolationLevel, owner, new HashMap<>(), false, 0);
+    public void startTransaction(boolean serializable, OperationOwner owner) throws SQLException, SQLHandledException {
+        startTransaction(serializable, owner, new HashMap<>(), false, 0, false);
     }
 
-    public void startTransaction(int isolationLevel, OperationOwner owner, Map<String, Integer> attemptCountMap, boolean useDeadLockPriority, long applyStartTime) throws SQLException, SQLHandledException {
+    public void startTransaction(boolean serializable, OperationOwner owner, Map<String, Integer> attemptCountMap, boolean useDeadLockPriority, long applyStartTime, boolean trueSerializable) throws SQLException, SQLHandledException {
         lockWrite(owner);
         startTransaction = System.currentTimeMillis();
         this.attemptCountMap = attemptCountMap;
@@ -588,9 +593,9 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
                 transStartTime = System.currentTimeMillis();
 
                 needPrivate();
-                if(isolationLevel > 0) {
+                if(serializable) {
                     prevIsolation = privateConnection.sql.getTransactionIsolation();
-                    privateConnection.sql.setTransactionIsolation(isolationLevel);
+                    privateConnection.sql.setTransactionIsolation(trueSerializable ? Connection.TRANSACTION_SERIALIZABLE : Connection.TRANSACTION_REPEATABLE_READ);
                 }
                 setACID(privateConnection.sql, true, syntax);
 
@@ -753,16 +758,23 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
     }
 
-    public void addExtraIndexes(StoredTable table, ImOrderSet<KeyField> keys, boolean ifNotExists) throws SQLException {
+    private DBManager.IndexData<ImOrderMap<Field, Boolean>> getExtraIndexes(ImOrderSet<KeyField> keys) {
+        List<ImOrderMap<Field, Boolean>> indexes = new ArrayList<>();
         for(int i=1;i<keys.size();i++)
-            addIndex(table, BaseUtils.<ImOrderSet<Field>>immutableCast(keys).subOrder(i, keys.size()).toOrderMap(true), defaultIndexOptions, ifNotExists);
+            indexes.add(BaseUtils.<ImOrderSet<Field>>immutableCast(keys).subOrder(i, keys.size()).toOrderMap(true));
+        return new DBManager.IndexData<>(indexes, new IndexOptions(true, DEFAULT, null));
+    }
+
+    public void addExtraIndexes(StoredTable table, ImOrderSet<KeyField> keys, boolean ifNotExists) throws SQLException {
+        DBManager.IndexData<ImOrderMap<Field, Boolean>> extraIndexes = getExtraIndexes(keys);
+        for(ImOrderMap<Field, Boolean> fields : extraIndexes.fields)
+            addIndex(table, fields, extraIndexes.options, ifNotExists);
     }
 
     public void checkExtraIndexes(SQLSession threadLocalSQL, StoredTable table, ImOrderSet<KeyField> keys) throws SQLException, SQLHandledException {
-        for(int i=1;i<keys.size();i++) {
-            ImOrderMap<Field, Boolean> fields = BaseUtils.<ImOrderSet<Field>>immutableCast(keys).subOrder(i, keys.size()).toOrderMap(true);
-            threadLocalSQL.checkDefaultIndex(table, fields, defaultIndexOptions);
-        }
+        DBManager.IndexData<ImOrderMap<Field, Boolean>> extraIndexes = getExtraIndexes(keys);
+        for(ImOrderMap<Field, Boolean> fields : extraIndexes.fields)
+            threadLocalSQL.checkDefaultIndex(table, fields, extraIndexes.options);
     }
 
     private String getConstraintName(String table) {
@@ -819,11 +831,11 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
     static String getIndexName(StoredTable table, ImOrderMap<String, Boolean> fields, String dbName, String suffix, boolean suffixInTheEnd, boolean old, SQLSyntax syntax) {
         if(dbName != null)
             return dbName;
-        if (suffixInTheEnd) { //new style
+        if (suffixInTheEnd) {
             return syntax.getIndexName(fields.keyOrderSet().toString("_") + "_idx" + (syntax.isIndexNameLocal() ? "" : "_" + table.getName())) + suffix;
-        } else if (old) { //old style before 2015
+        } else if (old) { // old style before 2015
             return syntax.getIndexName((syntax.isIndexNameLocal() ? "" : table.getName() + "_") + fields.keyOrderSet().toString("_") + "_idx");
-        } else { //old style after 2015
+        } else { // new style
             return syntax.getIndexName(fields.keyOrderSet().toString("_") + nvl(suffix, "") + "_idx" + (syntax.isIndexNameLocal() ? "" : "_" + table.getName()));
         }
     }
@@ -855,10 +867,10 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
     private void checkLikeIndex(StoredTable table, ImOrderMap<Field, Boolean> fields, IndexOptions indexOptions) throws SQLException, SQLHandledException {
         String newIndexName = getIndexName(table, syntax, indexOptions.dbName, fields, LIKE.suffix(), false, false);
-        if (!checkIndex(newIndexName)) {
+        if (!indexExists(newIndexName)) {
             //deprecated old index name with _like in the end  (can be removed after checkIndices)
             String oldIndexName = getIndexName(table, syntax, indexOptions.dbName, fields, LIKE.suffix(), true, false);
-            if (checkIndex(oldIndexName)) {
+            if (indexExists(oldIndexName)) {
                 renameIndex(oldIndexName, newIndexName);
             } else {
                 createLikeIndex(table, fields, indexOptions.dbName, getColumns(fields, indexOptions), logger, true);
@@ -868,10 +880,10 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
     private void checkMatchIndex(StoredTable table, ImOrderMap<Field, Boolean> fields, IndexOptions indexOptions) throws SQLException, SQLHandledException {
         String newIndexName = getIndexName(table, syntax, indexOptions.dbName, fields, MATCH.suffix(), false, false);
-        if (!checkIndex(newIndexName)) {
+        if (!indexExists(newIndexName)) {
             //deprecated old index name with _match in the end  (can be removed after checkIndices)
             String oldIndexName = getIndexName(table, syntax, indexOptions.dbName, fields, MATCH.suffix(), true, false);
-            if (checkIndex(oldIndexName)) {
+            if (indexExists(oldIndexName)) {
                 renameIndex(oldIndexName, newIndexName);
             } else {
                 createMatchIndex(table, fields, indexOptions.dbName, getColumns(fields, indexOptions), indexOptions, logger, true);
@@ -881,10 +893,10 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
     private void checkDefaultIndex(StoredTable table, ImOrderMap<Field, Boolean> fields, IndexOptions indexOptions) throws SQLException, SQLHandledException {
         String newIndexName = getIndexName(table, syntax, indexOptions.dbName, fields, null, false, false);
-        if (!checkIndex(newIndexName)) {
+        if (!indexExists(newIndexName)) {
             //deprecated old index name with idx in the end (before 2015)  (can be removed after checkIndices)
             String veryOldIndexName = getIndexName(table, syntax, indexOptions.dbName, fields, null, false, true);
-            if (checkIndex(veryOldIndexName)) {
+            if (indexExists(veryOldIndexName)) {
                 renameIndex(veryOldIndexName, newIndexName);
             } else {
                 createDefaultIndex(table, fields, indexOptions.dbName, getColumns(fields, indexOptions), logger, true);
@@ -892,28 +904,22 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
     }
 
-    private boolean checkIndex(String indexName) throws SQLException, SQLHandledException {
-        //начиная с Postgres 9.5 можно заменить на 'create index if not exists', но непонятно, что тогда делать с логами, поэтому пока проверяем наличие индекса
-        //https://dba.stackexchange.com/questions/35616/create-index-if-it-does-not-exist
-        String command = "SELECT to_regclass('public." + indexName + "')";
+    private boolean indexExists(String indexName) throws SQLException, SQLHandledException {
+        String queryString = "SELECT indexname FROM pg_indexes WHERE indexname = '" + indexName + "' AND schemaname = 'public'";
 
-        MExclSet<String> propertyNames = SetFact.mExclSet();
-        propertyNames.exclAdd("to_regclass");
-        propertyNames.immutable();
+        ImRevMap<String, String> propertyNames = MapFact.singletonRev("indexname", "indexname");
+        ImMap<String, Reader<?>> propertyReaders = MapFact.singleton("indexname", StringClass.instance);
 
-        MExclMap<String, Reader> propertyReaders = MapFact.mExclMap();
-        propertyReaders.exclAdd("to_regclass", PGObjectReader.instance);
-        propertyReaders.immutable();
+        ImOrderMap<ImMap<String, Object>, ImMap<String, Object>> rs = executeSelect(queryString, OperationOwner.unknown,
+                StaticExecuteEnvironmentImpl.EMPTY, MapFact.EMPTY(),0,
+                MapFact.EMPTYREV(), MapFact.EMPTY(), propertyNames, propertyReaders);
 
-        ImOrderMap rs = executeSelect(command, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, (ImMap<String, ParseInterface>) MapFact.mExclMap(),
-                0, MapFact.EMPTYREV(), MapFact.EMPTY(), ((ImSet) propertyNames).toRevMap(), (ImMap) propertyReaders);
-
-        boolean exists = false;
-        for (Object rsValue : rs.values()) {
-            if (((HMap) rsValue).get("to_regclass") != null)
-                exists = true;
+        for (ImMap<String, ?> rsValue : rs.values()) {
+            if (indexName.equals(rsValue.get("indexname"))) {
+                return true;
+            }
         }
-        return exists;
+        return false;
     }
 
     public void addConstraint(StoredTable table) {
@@ -928,10 +934,6 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
     public void addIndex(StoredTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<Field> fields, IndexOptions indexOptions, boolean ifNotExists) throws SQLException {
         addIndex(table, getOrderFields(keyFields, indexOptions, fields), indexOptions, ifNotExists);
-    }
-
-    public void addIndex(StoredTable table, ImOrderMap<Field, Boolean> fields) throws SQLException {
-        addIndex(table, fields, defaultIndexOptions, false);
     }
 
     public void addIndex(StoredTable table, ImOrderMap<Field, Boolean> fields, IndexOptions indexOptions, boolean ifNotExists) throws SQLException {
@@ -2041,10 +2043,6 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
     }
 
-    // системные вызовы
-    public <K,V> void executeDML(String update) throws SQLException, SQLHandledException {
-        executeDML(new SQLDML(update, Cost.MIN, MapFact.EMPTY(), StaticExecuteEnvironmentImpl.EMPTY, false), OperationOwner.unknown, TableOwner.global, MapFact.EMPTY(), DynamicExecuteEnvironment.DEFAULT, null, PureTime.VOID, 0, RegisterChange.VOID);
-    }
     public <K,V> void executeSelect(String select, OperationOwner owner, StaticExecuteEnvironment env, ImRevMap<K, String> keyNames, final ImMap<String, ? extends Reader> keyReaders, ImRevMap<V, String> propertyNames, ImMap<String, ? extends Reader> propertyReaders, ResultHandler<K, V> handler) throws SQLException, SQLHandledException {
         executeSelect(select, owner, env, MapFact.EMPTY(), 0, keyNames, keyReaders, propertyNames, propertyReaders, false, handler);
     }
@@ -2433,97 +2431,74 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         statement.executeBatch();
     }
 
-    private void insertParamRecord(StoredTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, OperationOwner owner, TableOwner tableOwner) throws SQLException {
-        checkTableOwner(table, tableOwner);
-        
-        String insertString = "";
-        String valueString = "";
+    public void insertRecord(StoredTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, TableOwner owner, OperationOwner opOwner) throws SQLException, SQLHandledException {
+        modifyRecords(table, MapFact.addExcl(keyFields, propFields), new ModifyRecord() {
+            private StringBuilder insertString;
+            private StringBuilder valueString;
 
-        int paramNum = 0;
-        MExclMap<String, ParseInterface> params = MapFact.mExclMapMax(keyFields.size()+propFields.size());
-
-        // пробежим по KeyFields'ам
-        for (int i=0,size=keyFields.size();i<size;i++) {
-            KeyField key = keyFields.getKey(i);
-            insertString = (insertString.length() == 0 ? "" : insertString + ',') + key.getName(syntax);
-            DataObject keyValue = keyFields.getValue(i);
-            if (keyValue.isSafeString(syntax))
-                valueString = (valueString.length() == 0 ? "" : valueString + ',') + keyValue.getString(syntax);
-            else {
-                String prm = "qxprm" + (paramNum++) + "nx";
-                valueString = (valueString.length() == 0 ? "" : valueString + ',') + prm;
-                params.exclAdd(prm, new TypeObject(keyValue, key, syntax));
+            public void proceed(String fieldName, String valueName) {
+                if(insertString == null) {
+                    insertString = new StringBuilder();
+                    valueString = new StringBuilder();
+                } else {
+                    insertString.append(',');
+                    valueString.append(',');
+                }
+                insertString.append(fieldName);
+                valueString.append(valueName);
             }
-        }
 
-        for (int i=0,size=propFields.size();i<size;i++) {
-            PropertyField property = propFields.getKey(i);
-            insertString = (insertString.length() == 0 ? "" : insertString + ',') + property.getName(syntax);
-            ObjectValue fieldValue = propFields.getValue(i);
-            if (fieldValue.isSafeString(syntax))
-                valueString = (valueString.length() == 0 ? "" : valueString + ',') + fieldValue.getString(syntax);
-            else {
-                String prm = "qxprm" + (paramNum++) + "nx";
-                valueString = (valueString.length() == 0 ? "" : valueString + ',') + prm;
-                params.exclAdd(prm, new TypeObject((DataObject) fieldValue, property, syntax));
+            public String finish(String tableName) {
+                return "INSERT INTO " + tableName + " (" + insertString + ") VALUES (" + valueString + ")";
             }
-        }
-
-        if(insertString.length()==0) {
-            assert valueString.length()==0;
-            insertString = "dumb";
-            valueString = "0";
-        }
-
-        try {
-            executeDML(new SQLDML("INSERT INTO " + table.getName(syntax) + " (" + insertString + ") VALUES (" + valueString + ")", Cost.MIN, MapFact.EMPTY(), StaticExecuteEnvironmentImpl.EMPTY, false), owner, tableOwner, params.immutable(), DynamicExecuteEnvironment.DEFAULT, null, PureTime.VOID, 0, register(table, tableOwner, TableChange.INSERT));
-        } catch (SQLHandledException e) {
-            throw new UnsupportedOperationException(); // по идее ни deadlock'а, ни update conflict'а, ни timeout'а
-        }
+        }, TableChange.INSERT, owner, opOwner);
     }
 
-    public void insertRecord(StoredTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, TableOwner owner, OperationOwner opOwner) throws SQLException {
+    private int modifyRecords(StoredTable table, ImMap<? extends Field, ? extends ObjectValue> fields, ModifyRecord command, TableChange tableChange, TableOwner owner, OperationOwner opOwner) throws SQLException, SQLHandledException {
         checkTableOwner(table, owner);
 
-        boolean needParam = false;
+        MExclMap<String, ParseInterface> mParams = MapFact.mExclMapMax(fields.size());
+        for (int i = 0, size = fields.size(); i<size; i++) {
+            Field field = fields.getKey(i);
+            ObjectValue value = fields.getValue(i);
 
-        for (int i=0,size=keyFields.size();i<size;i++)
-            if (!keyFields.getValue(i).isSafeString(syntax)) {
-                needParam = true;
+            String stringValue;
+            if (value.isSafeString(syntax))
+                stringValue = value.getString(syntax);
+            else {
+                stringValue = SQLSession.getParamName("mr" + i);
+                mParams.exclAdd(stringValue, new TypeObject((DataObject) value, field, syntax));
+            }
+            command.proceed(field.getName(syntax), stringValue);
+        }
+        ImMap<String, ParseInterface> params = mParams.immutable();
+        if(fields.isEmpty())
+            command.proceed("dumb", "0");
+
+        String stringCommand = command.finish(table.getName(syntax));
+
+        if(!params.isEmpty())
+            return executeDML(new SQLDML(stringCommand, Cost.MIN, MapFact.EMPTY(), StaticExecuteEnvironmentImpl.EMPTY, false), opOwner, owner, params, DynamicExecuteEnvironment.DEFAULT, null, PureTime.VOID, 0, register(table, owner, tableChange));
+        else
+            return executeDML(stringCommand, opOwner, owner, register(table, owner, TableChange.INSERT));
+    }
+
+    public <X> int deleteKeyRecords(StoredTable table, ImMap<KeyField, DataObject> keys, OperationOwner owner, TableOwner tableOwner) throws SQLException, SQLHandledException {
+        return modifyRecords(table, keys, new ModifyRecord() {
+            private StringBuilder deleteString;
+
+            public void proceed(String fieldName, String valueName) {
+                if(deleteString == null)
+                    deleteString = new StringBuilder();
+                else
+                    deleteString.append(" AND ");
+                deleteString.append(fieldName).append("=").append(valueName);
             }
 
-        for (int i=0,size=propFields.size();i<size;i++)
-            if (!propFields.getValue(i).isSafeString(syntax)) {
-                needParam = true;
+            public String finish(String tableName) {
+                return "DELETE FROM " + tableName + " WHERE " + deleteString;
             }
-
-        if (needParam) {
-            insertParamRecord(table, keyFields, propFields, opOwner, owner);
-            return;
-        }
-
-        String insertString = "";
-        String valueString = "";
-
-        // пробежим по KeyFields'ам
-        for (int i=0,size=keyFields.size();i<size;i++) { // нужно сохранить общий порядок, поэтому без toString
-            insertString = (insertString.length() == 0 ? "" : insertString + ',') + keyFields.getKey(i).getName(syntax);
-            valueString = (valueString.length() == 0 ? "" : valueString + ',') + keyFields.getValue(i).getString(syntax);
-        }
-
-        // пробежим по Fields'ам
-        for (int i=0,size=propFields.size();i<size;i++) { // нужно сохранить общий порядок, поэтому без toString
-            insertString = (insertString.length() == 0 ? "" : insertString + ',') + propFields.getKey(i).getName(syntax);
-            valueString = (valueString.length() == 0 ? "" : valueString + ',') + propFields.getValue(i).getString(syntax);
-        }
-
-        if(insertString.length()==0) {
-            assert valueString.length()==0;
-            insertString = "dumb";
-            valueString = "0";
-        }
-
-        executeDML("INSERT INTO " + table.getName(syntax) + " (" + insertString + ") VALUES (" + valueString + ")", opOwner, owner, register(table, owner, TableChange.INSERT));
+        }, TableChange.DELETE, tableOwner, owner);
     }
 
     public boolean isRecord(StoredTable table, ImMap<KeyField, DataObject> keyFields, OperationOwner owner) throws SQLException, SQLHandledException {
@@ -2614,12 +2589,10 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
     }
 
-    public <X> int deleteKeyRecords(StoredTable table, ImMap<KeyField, X> keys, OperationOwner owner, TableOwner tableOwner) throws SQLException {
-        checkTableOwner(table, tableOwner);
-        
-        String deleteWhere = keys.toString((key, value) -> key.getName(syntax) + "=" + value, " AND ");
+    private interface ModifyRecord {
+        void proceed(String fieldName, String valueName);
 
-        return executeDML("DELETE FROM " + table.getName(syntax) + (deleteWhere.length() == 0 ? "" : " WHERE " + deleteWhere), owner, tableOwner, register(table, tableOwner, TableChange.DELETE));
+        String finish(String tableName);
     }
 
     private static int readInt(Object value) {
@@ -2801,12 +2774,12 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
     }
 
     public int insertSessionSelect(String name, final IQuery<KeyField, PropertyField> query, final QueryEnvironment env, final TableOwner owner) throws SQLException, SQLHandledException {
-        return insertSessionSelect(name, query, env, owner, MapFact.EMPTYORDER(), 0);
+        return insertSessionSelect(name, query, env, owner, MapFact.EMPTYORDER(), LimitOffset.NOLIMIT);
     }
 
-    public int insertSessionSelect(String name, final IQuery<KeyField, PropertyField> query, final QueryEnvironment env, final TableOwner owner, ImOrderMap<PropertyField, Boolean> ordersTop, int selectTop) throws SQLException, SQLHandledException {
+    public int insertSessionSelect(String name, final IQuery<KeyField, PropertyField> query, final QueryEnvironment env, final TableOwner owner, ImOrderMap<PropertyField, Boolean> ordersTop, LimitOffset limitOffset) throws SQLException, SQLHandledException {
         checkTableOwner(name, owner);
-        return insertSessionSelect(ModifyQuery.getInsertSelect(syntax.getSessionTableName(name), query, env, owner, syntax, contextProvider, null, register(name, owner, TableChange.INSERT), ordersTop, selectTop), () -> query.outSelect(SQLSession.this, env, true));
+        return insertSessionSelect(ModifyQuery.getInsertSelect(syntax.getSessionTableName(name), query, env, owner, syntax, contextProvider, null, register(name, owner, TableChange.INSERT), ordersTop, limitOffset), () -> query.outSelect(SQLSession.this, env, true));
     }
 
     public int insertLeftSelect(ModifyQuery modify, boolean updateProps, boolean insertOnlyNotNull) throws SQLException, SQLHandledException {
@@ -2953,15 +2926,6 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
         checkSessionTables(paramObjects);
 
-        ImMap<String, String> reparse;
-        if(BusinessLogics.useReparse && (reparse = BusinessLogics.reparse.get()) != null) { // временный хак
-            paramObjects = paramObjects.addExcl(reparse.mapValues((String value) -> new StringParseInterface() {
-                public String getString(SQLSyntax syntax1, StringBuilder envString, boolean usedRecursion) {
-                    return value;
-                }
-            }));
-        }
-
         final PreParsedStatement parse = command.preparseStatement(poolPrepared, paramObjects, syntax, isVolatileStats(), snapEnv.getMaterializedQueries(), env.hasRecursion());
 
         ParsedStatement parsed = null;
@@ -2998,14 +2962,20 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
     private final static BiFunction<String, String, String> addFieldAliases = (key, value) -> value + " AS " + key;
     // вспомогательные методы
 
-    public static String getSelect(SQLSyntax syntax, String fromSelect, ImMap<String, String> keySelect, ImMap<String, String> propertySelect, ImCol<String> whereSelect, int top) {
-        return syntax.getSelect(fromSelect, stringExpr(keySelect, propertySelect), whereSelect.toString(" AND "), "", top > 0 ? String.valueOf(top) : "", false);
+    public static String getSelect(SQLSyntax syntax, String fromSelect, ImMap<String, String> keySelect, ImMap<String, String> propertySelect, ImCol<String> whereSelect, int top, int offset) {
+        return syntax.getSelect(fromSelect, stringExpr(keySelect, propertySelect), whereSelect.toString(" AND "), "", top > 0 ? String.valueOf(top) : "", offset > 0 ? String.valueOf(offset) : "", false);
     }
     public static String getSelect(SQLSyntax syntax, String fromSelect, ImMap<String, String> keySelect, ImMap<String, String> propertySelect, ImCol<String> whereSelect) {
-        return getSelect(syntax, fromSelect, keySelect.toOrderMap(), propertySelect.toOrderMap(), whereSelect);
+        return getSelect(syntax, fromSelect, keySelect, propertySelect, whereSelect, MapFact.EMPTYORDER(), "", "");
+    }
+    public static String getSelect(SQLSyntax syntax, String fromSelect, ImMap<String, String> keySelect, ImMap<String, String> propertySelect, ImCol<String> whereSelect, ImOrderMap<String, CompileOrder> orders, String limit, String offset) {
+        return getSelect(syntax, fromSelect, keySelect.toOrderMap(), propertySelect.toOrderMap(), whereSelect, orders, limit, offset);
     }
     public static String getSelect(SQLSyntax syntax, String fromSelect, ImOrderMap<String, String> keySelect, ImOrderMap<String, String> propertySelect, ImCol<String> whereSelect) {
-        return syntax.getSelect(fromSelect, stringExpr(keySelect, propertySelect), whereSelect.toString(" AND "));
+        return getSelect(syntax, fromSelect, keySelect, propertySelect, whereSelect, MapFact.EMPTYORDER(), "", "");
+    }
+    public static String getSelect(SQLSyntax syntax, String fromSelect, ImOrderMap<String, String> keySelect, ImOrderMap<String, String> propertySelect, ImCol<String> whereSelect, ImOrderMap<String, CompileOrder> orders, String limit, String offset) {
+        return syntax.getSelect(fromSelect, stringExpr(keySelect, propertySelect), whereSelect.toString(" AND "), Query.stringOrder(orders, syntax), limit, offset, false);
     }
     public static String stringExpr(ImMap<String, String> keySelect, ImMap<String, String> propertySelect) {
         return stringExpr(keySelect.toOrderMap(), propertySelect.toOrderMap());

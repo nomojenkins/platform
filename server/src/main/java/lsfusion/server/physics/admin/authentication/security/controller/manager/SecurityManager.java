@@ -1,10 +1,12 @@
 package lsfusion.server.physics.admin.authentication.security.controller.manager;
 
+import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import lsfusion.base.BaseUtils;
+import lsfusion.base.Pair;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderMap;
@@ -54,6 +56,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static lsfusion.base.ApiResourceBundle.getString;
+import static lsfusion.base.BaseUtils.trim;
 import static lsfusion.server.physics.admin.log.ServerLoggers.*;
 
 public class SecurityManager extends LogicsManager implements InitializingBean {
@@ -142,23 +145,53 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
         try(DataSession session = createSession()) {
 
             //created in createSystemUserRoles
-            this.adminUserRole = (DataObject) securityLM.userRoleSID.readClasses(session, new DataObject("admin"));
+            String admin = "admin";
+            this.adminUserRole = (DataObject) securityLM.userRoleSID.readClasses(session, new DataObject(admin));
             this.readOnlyUserRole = (DataObject) securityLM.userRoleSID.readClasses(session, new DataObject("readonly"));
 
-            DataObject adminUser = readUser("admin", session);
-            if (adminUser == null) {
-                adminUser = addUser("admin", initialAdminPassword, session);
-                apply(session);
-            }
-            this.adminUser = new DataObject((Long) adminUser.object, authenticationLM.customUser); // to update classes after apply
+            this.adminUser = initUser(admin, session);
 
-            DataObject anonymousUser = readUser("anonymous", session);
-            if (anonymousUser == null) {
-                anonymousUser = addUser("anonymous", initialAdminPassword, session);
-                apply(session);
-            }
-            this.anonymousUser = new DataObject((Long) anonymousUser.object, authenticationLM.customUser); // to update classes after apply
+            this.anonymousUser = initUser("anonymous", session);
         }
+    }
+
+    private DataObject initUser(String admin, DataSession session) throws SQLException, SQLHandledException {
+        DataObject adminUser = readUser(admin, session);
+
+        if (adminUser == null) {
+            adminUser = addUser(admin, initialAdminPassword, session);
+            apply(session);
+
+            // to update classes after apply
+            return new DataObject((Long) adminUser.object, authenticationLM.customUser);
+        }
+
+        return adminUser;
+    }
+
+    // LDAP or OAuth authentication
+    private Pair<DataObject, String> initAndUpdateUser(DataSession session, ExecutionStack stack, String userName, Supplier<String> password, String firstName, String lastName, String email, List<String> roles, boolean rolesOnlyIfNew, Map<String, String> attributes) throws SQLException, SQLHandledException {
+        Pair<DataObject, String> userObjectAndLogin = readUser(userName, email, session);
+
+        if (userObjectAndLogin == null || userObjectAndLogin.second == null) {
+            if(rolesOnlyIfNew && securityLM.disableRoleSID.read(session, new DataObject(roles.get(0))) != null) // if selfRegister is disabled
+                return null;
+
+            DataObject userObject;
+            if(userObjectAndLogin == null)
+                userObject = addUser(userName, password.get(), session);
+            else {
+                userObject = userObjectAndLogin.first;
+                authenticationLM.loginCustomUser.change(userName, session, userObject);
+            }
+            userObjectAndLogin = new Pair<>(userObject, userName);
+        } else if(rolesOnlyIfNew)
+            roles = null;
+
+        setUserParameters(userObjectAndLogin.first, firstName, lastName, email, roles, attributes, session);
+        apply(session, stack);
+
+        return userObjectAndLogin;
     }
 
     public DataObject getAdminUser() {
@@ -166,7 +199,7 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
     }
 
     public DataObject getDefaultLoginUser() {
-        return SystemProperties.inDevMode ? getAdminUser() : anonymousUser;
+        return SystemProperties.inDevMode ? adminUser : anonymousUser;
     }
 
     private DataSession createSession() throws SQLException {
@@ -180,9 +213,36 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
         return userObject;
     }
 
+    public Pair<DataObject, String> readUser(String login, String email, DataSession session) throws SQLException, SQLHandledException {
+        DataObject userObject = readUser(login, session);
+        if(userObject != null)
+            return new Pair<>(userObject, login);
+
+        if(email != null) {
+            ObjectValue readUser = authenticationLM.customUserEmail.readClasses(session, new DataObject(email));
+            if(!readUser.isNull()) {
+                userObject = (DataObject) readUser;
+                return new Pair<>(userObject, (String) authenticationLM.loginCustomUser.read(session, userObject));
+            }
+        }
+
+        return null;
+    }
+
     public DataObject readUser(String login, DataSession session) throws SQLException, SQLHandledException {
-        ObjectValue userObject = authenticationLM.customUserNormalized.readClasses(session, new DataObject(login));
+        ObjectValue userObject = authenticationLM.customUserLogin.readClasses(session, new DataObject(login));
         return userObject.isNull() ? null : (DataObject) userObject;
+    }
+
+    public DataObject getUser(String login, DataSession session) throws SQLException, SQLHandledException {
+        if(login != null) {
+            DataObject user = readUser(login, session);
+            if(user == null) {
+                throw new AuthenticationException(String.format("User with login %s not found", login));
+            }
+            return user;
+        }
+        return getDefaultLoginUser();
     }
 
     private String secret = null;
@@ -259,57 +319,49 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
 
     public AuthenticationToken authenticateUser(Authentication authentication, ExecutionStack stack) {
         try (DataSession session = createSession()) {
-            DataObject userObject;
-            if (authentication instanceof PasswordAuthentication) {
-                userObject = readUser(authentication.getUserName(), session);
+            String userName = authentication.getUserName();
 
-                boolean authenticated = false;
+            Pair<DataObject, String> userObjectAndLogin = null;
+            if (authentication instanceof PasswordAuthentication) {
+                String password = ((PasswordAuthentication) authentication).getPassword();
+
                 if (authenticationLM.useLDAP.read(session) != null) {
                     String server = (String) authenticationLM.serverLDAP.read(session);
                     Integer port = (Integer) authenticationLM.portLDAP.read(session);
                     String baseDN = (String) authenticationLM.baseDNLDAP.read(session);
                     String userDNSuffix = (String) authenticationLM.userDNSuffixLDAP.read(session);
                     try {
-                        LDAPParameters ldapParameters = new LDAPAuthenticationService(server, port, baseDN, userDNSuffix)
-                                .authenticate(authentication.getUserName(), ((PasswordAuthentication) authentication).getPassword());
-                        if (ldapParameters.isConnected()) {
-                            authenticated = true;
-                            if (userObject == null) {
-                                userObject = addUser(authentication.getUserName(), ((PasswordAuthentication) authentication).getPassword(), session);
-                            }
-                            setUserParameters(userObject, ldapParameters.getFirstName(), ldapParameters.getLastName(),
-                                    ldapParameters.getEmail(), ldapParameters.getGroupNames(), ldapParameters.getAttributes(), session);
-                            apply(session, stack);
-                        } else {
+                        LDAPParameters ldapParameters = new LDAPAuthenticationService(server, port, baseDN, userDNSuffix).authenticate(userName, password);
+
+                        if(!ldapParameters.isConnected())
                             throw new LoginException();
-                        }
+                        userObjectAndLogin = initAndUpdateUser(session, stack, userName, () -> password, ldapParameters.getFirstName(), ldapParameters.getLastName(), ldapParameters.getEmail(), ldapParameters.getGroupNames(), false, ldapParameters.getAttributes());
                     } catch (CommunicationException e) {
                         systemLogger.error("LDAP authentication failed", e);
                     }
                 }
-                if (!authenticated && (userObject == null || !authenticationLM.checkPassword(session, userObject, ((PasswordAuthentication) authentication).getPassword())))
-                    throw new LoginException();
+
+                if(userObjectAndLogin == null) {
+                    userObjectAndLogin = readUser(userName, userName, session);
+
+                    if (userObjectAndLogin == null || userObjectAndLogin.second == null || !authenticationLM.checkPassword(session, userObjectAndLogin.first, password))
+                        throw new LoginException();
+                }
             } else {
                 OAuth2Authentication oauth2 = (OAuth2Authentication) authentication;
                 String webClientAuthSecret = oauth2.getAuthSecret();
                 if ((webClientAuthSecret == null || !webClientAuthSecret.equals(getWebClientSecret())))
                     throw new AuthenticationException(getString("exceptions.incorrect.web.client.auth.token"));
 
-                List<String> userRoles = null;
-                userObject = readUser(oauth2.getUserName(), session);
-                if (userObject == null) {
-                    userObject = addUser(oauth2.getUserName(), BaseUtils.generatePassword(20, false, true), session);
-                    userRoles = Collections.singletonList("selfRegister");
-                }
-
                 // Because user data can change on the oauth2 provider side - we will update userParameters on each authentication.
-                setUserParameters(userObject, oauth2.getFirstName(), oauth2.getLastName(), oauth2.getEmail(), userRoles, oauth2.getAttributes(),  session);
-                apply(session, stack);
+                userObjectAndLogin = initAndUpdateUser(session, stack, oauth2.getUserName(), () -> BaseUtils.generatePassword(20, false, true), oauth2.getFirstName(), oauth2.getLastName(), oauth2.getEmail(), Collections.singletonList("selfRegister"), true, oauth2.getAttributes());
+                if(userObjectAndLogin == null)
+                    throw new LoginException();
             }
-            if (authenticationLM.isLockedCustomUser.read(session, userObject) != null) {
+            if (authenticationLM.isLockedCustomUser.read(session, userObjectAndLogin.first) != null) {
                 throw new LockedException();
             }
-            return generateToken(authentication.getUserName());
+            return generateToken(userObjectAndLogin.second);
         } catch (SQLException | SQLHandledException e) {
             throw Throwables.propagate(e);
         }
@@ -401,7 +453,7 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
             queryResult = query.execute(session);
             for (ImMap<Object, Object> entry : queryResult.values()) {
 
-                String canonicalName = (String) entry.get("canonicalName");
+                String canonicalName = trim((String) entry.get("canonicalName"));
                 boolean isProperty = entry.get("isProperty") != null;
                 try {
                     LAP<?, ?> property = isProperty ? businessLogics.findProperty(canonicalName) : businessLogics.findAction(canonicalName);

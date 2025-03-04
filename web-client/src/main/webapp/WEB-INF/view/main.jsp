@@ -39,7 +39,7 @@
 
         </style>
 
-        <lsf:writeResources resources="${mainResourcesBeforeSystem}"/>
+        <lsf:writeResources resources="${resourcesBeforeSystem}"/>
 
         <% pageContext.setAttribute("versionedResources", ServerUtils.getVersionedResources(config.getServletContext(),
                 "static/js/external/jquery-3.7.1.min.js",
@@ -74,8 +74,8 @@
                 "static/js/subtotal.js",
 
                 //plotly libs : plotly_renderers
-                "static/js/external/plotly-basic.min.js", //https://cdnjs.cloudflare.com/ajax/libs/plotly.js/1.58.4/plotly-basic.min.js
-                "static/js/external/plotly-locale-ru.js", //https://cdnjs.cloudflare.com/ajax/libs/plotly.js/1.58.4/plotly-locale-ru.js
+                "static/js/external/plotly-basic.min.js", //https://github.com/plotly/plotly.js/blob/master/dist/plotly-basic.min.js
+                "static/js/external/plotly-locale-ru.js", //https://github.com/plotly/plotly.js/blob/master/dist/plotly-locale-ru.js
 
                 //will patch plotly_renderers with reverse parameter, since it's makes more sense to show rows on x axis, and columns on y axis
                 //+ horizontal moved to the end
@@ -115,7 +115,7 @@
                 "static/css/gMap.css",
 
                 //calendar
-                "static/js/external/fullcalendar.index.global.min.js", //https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js
+                "static/js/external/fullcalendar.index.global.min.js", //https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js
                 "static/css/gCalendar.css",
                 "static/js/external/fullcalendar-locales-all.js", //https://cdn.jsdelivr.net/npm/fullcalendar@5.7.2/locales-all.js
                 "static/js/fullcalendar-locale-be.js",
@@ -131,8 +131,8 @@
                 "static/css/datePicker.css",
 
                 //Quill
-                "static/js/external/quill.min.js", //https://cdn.quilljs.com/1.3.6/quill.min.js
-                "static/css/external/quill.bubble.css", //https://cdn.quilljs.com/1.3.6/quill.bubble.css
+                "static/js/external/quill.min.js", //https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js
+                "static/css/external/quill.bubble.css", //https://cdn.jsdelivr.net/npm/quill@2/dist/quill.bubble.css
                 "static/css/quillRichText.css",
 
                 //Ace code editor
@@ -175,7 +175,6 @@
                 "static/css/gwt/form/components/table/table-cell.css",
                 "static/css/gwt/form/components/table/table-container.css",
                 "static/css/gwt/form/components/table/table-sticky.css",
-                "static/css/gwt/form/components/table/tree.css",
 
                 "static/css/gwt/form/components/filter.css",
                 "static/css/gwt/form/components/property/panel-renderer.css",
@@ -194,7 +193,7 @@
         ));%>
 
         <lsf:writeResources resources="${versionedResources}"/>
-        <lsf:writeResources resources="${mainResourcesAfterSystem}"/>
+        <lsf:writeResources resources="${resourcesAfterSystem}"/>
 
         <c:forEach items="${lsfParams}" var="lsfParam">
             <script>

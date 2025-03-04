@@ -35,6 +35,7 @@ import lsfusion.gwt.client.form.object.table.grid.view.GSimpleStateTableView;
 import lsfusion.gwt.client.form.property.PValue;
 import lsfusion.gwt.client.form.property.cell.classes.controller.DateRangePickerBasedCellEditor;
 import lsfusion.gwt.client.form.view.FormContainer;
+import lsfusion.gwt.client.navigator.GNavigatorElement;
 import lsfusion.gwt.client.navigator.controller.GNavigatorController;
 import lsfusion.gwt.client.navigator.controller.dispatch.GNavigatorActionDispatcher;
 import lsfusion.gwt.client.navigator.controller.dispatch.NavigatorDispatchAsync;
@@ -60,6 +61,7 @@ public class MainFrame implements EntryPoint {
     public static int mobileAdjustment;
 
     public static boolean firefox;
+    public static boolean chrome;
 
     // settings    
     public static boolean devMode;
@@ -67,6 +69,7 @@ public class MainFrame implements EntryPoint {
     public static boolean showDetailedInfo;
     public static boolean autoReconnectOnConnectionLost;
     public static int showDetailedInfoDelay;
+    public static Boolean mobileMode;
     public static boolean suppressOnFocusChange;
     public static boolean forbidDuplicateForms;
     public static boolean useBootstrap;
@@ -106,6 +109,9 @@ public class MainFrame implements EntryPoint {
 
     public static boolean jasperReportsIgnorePageMargins;
 
+    public static double v5 = 5.9999;
+    public static double cssBackwardCompatibilityLevel;
+
     // async dispatch
     public <T extends Result> long asyncDispatch(final ExecuteNavigatorAction action, RequestCountingAsyncCallback<ServerResponseResult> callback) {
         return navigatorDispatchAsync.asyncExecute(action, callback);
@@ -139,11 +145,14 @@ public class MainFrame implements EntryPoint {
         GwtClientUtils.init();
 
         firefox = GwtClientUtils.isFirefoxUserAgent();
+        chrome = GwtClientUtils.isChromeUserAgent();
+        if (chrome)
+            GwtClientUtils.setGlobalClassName(true, "is-chrome");
 
         hackForGwtDnd();
 
         RootPanel.getBodyElement().setTabIndex(-1); // we need this because activeElement returns body (under the spec) when there is no active element, and we sometimes need to return focus there
-        RootLayoutPanel.get().getElement().addClassName("root-layout-panel");
+        GwtClientUtils.addClassName(RootLayoutPanel.get().getElement(), "root-layout-panel");
 //        GwtClientUtils.setZeroZIndex(element); // ??? move to layout.css
 
         PopupOwner popupOwner = PopupOwner.GLOBAL; // actually now is used for error handling
@@ -516,6 +525,8 @@ public class MainFrame implements EntryPoint {
 
         navigatorController.setRoot(result.root);
 
+        addBindings(formsController, result.root);
+
         GwtClientUtils.setGlobalClassName(true, useBootstrap ? "nav-bootstrap" : "nav-excel");
         GwtClientUtils.setGlobalClassName(true, mobile ? "nav-mobile" : "nav-desktop");
         GwtClientUtils.setGlobalClassName(true, "size-" + size);
@@ -581,6 +592,13 @@ public class MainFrame implements EntryPoint {
         GwtClientUtils.subscribePushManager(pushNotificationPublicKey, subscription -> updateServiceClientInfo(formsController, subscription, null));
     }
 
+    private void addBindings(FormsController formsController, GNavigatorElement element) {
+        formsController.addBindings(element, element.bindingEvents);
+        for(GNavigatorElement child : element.children) {
+            addBindings(formsController, child);
+        }
+    }
+
     public static String subscription;
     public static String clientId;
     private void updateServiceClientInfo(FormsController formsController, String subscription, String clientId) {
@@ -616,8 +634,6 @@ public class MainFrame implements EntryPoint {
         Integer screenWidth = Window.getClientWidth();
         Integer screenHeight = Window.getClientHeight();
         double scale = getScale();
-        mobile = Math.min(screenHeight, screenWidth) <= StyleDefaults.maxMobileWidthHeight;
-        mobileAdjustment = mobile ? 1 : 0;
 
         logicsDispatchAsync = new LogicsDispatchAsync(Window.Location.getParameter("host"), portString != null ? Integer.valueOf(portString) : null,
                 Window.Location.getParameter("exportName"));
@@ -637,6 +653,9 @@ public class MainFrame implements EntryPoint {
                 projectLSFDir = gClientSettings.projectLSFDir;
                 showDetailedInfo = gClientSettings.showDetailedInfo;
                 showDetailedInfoDelay = gClientSettings.showDetailedInfoDelay;
+                mobileMode = gClientSettings.mobileMode;
+                mobile = mobileMode != null ? mobileMode : Math.min(screenHeight, screenWidth) <= StyleDefaults.maxMobileWidthHeight;
+                mobileAdjustment = mobile ? 1 : 0;
                 suppressOnFocusChange = gClientSettings.suppressOnFocusChange;
                 autoReconnectOnConnectionLost = gClientSettings.autoReconnectOnConnectionLost;
                 forbidDuplicateForms = gClientSettings.forbidDuplicateForms;
@@ -664,6 +683,8 @@ public class MainFrame implements EntryPoint {
                 maxStickyLeft = gClientSettings.maxStickyLeft;
 
                 jasperReportsIgnorePageMargins = gClientSettings.jasperReportsIgnorePageMargins;
+
+                cssBackwardCompatibilityLevel = gClientSettings.cssBackwardCompatibilityLevel;
 
                 initializeFrame(result.navigatorInfo, popupOwner);
                 DateRangePickerBasedCellEditor.setPickerTwoDigitYearStart(gClientSettings.twoDigitYearStart);

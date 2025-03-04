@@ -2,6 +2,7 @@ package lsfusion.gwt.client.form.object.table.view;
 
 import com.google.gwt.dom.client.TableCellElement;
 import com.google.gwt.user.client.ui.Widget;
+import lsfusion.gwt.client.base.GwtClientUtils;
 import lsfusion.gwt.client.base.view.grid.Header;
 import lsfusion.gwt.client.form.controller.GFormController;
 import lsfusion.gwt.client.form.design.GFont;
@@ -13,6 +14,7 @@ import lsfusion.gwt.client.form.property.cell.view.UpdateContext;
 import lsfusion.gwt.client.form.property.table.view.GPropertyTableBuilder;
 
 import static lsfusion.gwt.client.base.GwtSharedUtils.nullEquals;
+import static lsfusion.gwt.client.view.MainFrame.v5;
 
 public class GGridPropertyTableFooter extends Header<String> implements RenderContext, UpdateContext {
 
@@ -53,6 +55,11 @@ public class GGridPropertyTableFooter extends Header<String> implements RenderCo
     }
 
     @Override
+    public Boolean isPropertyReadOnly() {
+        return true;
+    }
+
+    @Override
     public boolean isSelectedRow() {
         return false;
     }
@@ -70,8 +77,8 @@ public class GGridPropertyTableFooter extends Header<String> implements RenderCo
     @Override
     public void renderAndUpdateDom(TableCellElement th, boolean rerender) {
         if (sticky) {
-            th.addClassName("dataGridStickyFooter");
-            th.addClassName("background-inherit");
+            GwtClientUtils.addClassName(th, "data-grid-sticky-footer", "dataGridStickyFooter", v5);
+            GwtClientUtils.addClassName(th, "background-inherit");
         }
         
         GPropertyTableBuilder.renderAndUpdate(property, th, this, this);

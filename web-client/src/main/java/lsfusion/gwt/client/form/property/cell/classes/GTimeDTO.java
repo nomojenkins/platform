@@ -1,9 +1,11 @@
 package lsfusion.gwt.client.form.property.cell.classes;
 
+import com.google.gwt.core.client.JsDate;
+import lsfusion.gwt.client.base.GwtClientUtils;
+import lsfusion.gwt.client.classes.data.GTimeType;
+import lsfusion.gwt.client.form.property.PValue;
+
 import java.io.Serializable;
-import java.sql.Time;
-import java.util.Calendar;
-import java.util.Date;
 import java.util.Objects;
 
 public class GTimeDTO implements Serializable {
@@ -20,18 +22,18 @@ public class GTimeDTO implements Serializable {
         this.second = second;
     }
 
-    // should correspond ClientTimeIntervalClass, TimeIntervalClass
-    public Date toTime() {
-        return new Date(90, 0, 1, hour, minute, second);
+    public static GTimeDTO fromJsDate(JsDate date) {
+        return new GTimeDTO(date.getHours(), date.getMinutes(), date.getSeconds());
     }
 
-    public static GTimeDTO fromDate(Date date) {
-        return new GTimeDTO(date.getHours(), date.getMinutes(), date.getSeconds());
+    // should correspond ClientTimeIntervalClass, TimeIntervalClass
+    public JsDate toJsDate() {
+        return GwtClientUtils.createJsDate(90, 0, 1, hour, minute, second);
     }
 
     @Override
     public String toString() {
-        return toTime().toString();
+        return GTimeType.instance.formatString(PValue.getPValue(this), null);
     }
 
     @Override

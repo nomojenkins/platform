@@ -4,9 +4,10 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
+import lsfusion.base.ApiResourceBundle;
 import lsfusion.base.BaseUtils;
 import lsfusion.base.col.heavy.OrderedMap;
-import lsfusion.base.file.RawFileData;
+import lsfusion.base.file.FileData;
 import lsfusion.base.identity.DefaultIDGenerator;
 import lsfusion.base.identity.IDGenerator;
 import lsfusion.base.lambda.AsyncCallback;
@@ -38,13 +39,11 @@ import lsfusion.client.form.filter.ClientRegularFilterWrapper;
 import lsfusion.client.form.filter.user.ClientFilter;
 import lsfusion.client.form.filter.user.ClientPropertyFilter;
 import lsfusion.client.form.filter.user.controller.FilterController;
-import lsfusion.client.form.filter.user.view.FilterConditionView;
 import lsfusion.client.form.filter.view.SingleFilterBox;
 import lsfusion.client.form.object.ClientCustomObjectValue;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.object.ClientObject;
-import lsfusion.client.form.object.table.controller.AbstractTableController;
 import lsfusion.client.form.object.table.controller.TableController;
 import lsfusion.client.form.object.table.grid.controller.GridController;
 import lsfusion.client.form.object.table.grid.user.design.GridUserPreferences;
@@ -79,6 +78,7 @@ import lsfusion.interop.form.print.ReportGenerator;
 import lsfusion.interop.form.property.Compare;
 import lsfusion.interop.form.property.EventSource;
 import lsfusion.interop.form.remote.RemoteFormInterface;
+import lsfusion.interop.logics.remote.RemoteLogicsInterface;
 
 import javax.swing.Timer;
 import javax.swing.*;
@@ -139,6 +139,26 @@ public class ClientFormController implements AsyncListener {
             return remoteForm == null ? null : ClientFormController.this.getAsyncValues(-1, 0, propertyID, columnKey, actionSID, value, asyncIndex, remoteForm);
         }
     };
+
+    public static void exportAndOpen(ReportGenerationData generationData, FormPrintType type, boolean jasperReportsIgnorePageMargins, RemoteLogicsInterface remoteLogics) {
+        exportAndOpen(generationData, type, null, null, jasperReportsIgnorePageMargins, remoteLogics);
+    }
+
+    public static void exportAndOpen(ReportGenerationData generationData, FormPrintType type, String sheetName, String password, boolean jasperReportsIgnorePageMargins, RemoteLogicsInterface remoteLogics) {
+        try {
+            File tempFile = ReportGenerator.exportToFile(generationData, type, sheetName, password, jasperReportsIgnorePageMargins, remoteLogics);
+
+            try {
+                if (Desktop.isDesktopSupported()) {
+                    Desktop.getDesktop().open(tempFile);
+                }
+            } finally {
+                tempFile.deleteOnExit();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(ApiResourceBundle.getString("exceptions.error.exporting.to", type), e);
+        }
+    }
 
     private ClientAsync[] getAsyncValues(long requestIndex, long lastReceivedRequestIndex, int propertyID, byte[] columnKey, String actionSID, String value, int asyncIndex, RemoteFormInterface remoteForm) throws RemoteException {
         return ClientAsync.deserialize(remoteForm.getAsyncValues(requestIndex, lastReceivedRequestIndex, propertyID, columnKey, actionSID, value, asyncIndex, 0), form);
@@ -341,7 +361,7 @@ public class ClientFormController implements AsyncListener {
             }
 
             ClientGroupObject groupObject = property.groupObject;
-            if(groupObject != null && property.isList && !property.hide && groupObject.columnCount < 10) {
+            if(groupObject != null && property.isList && !property.hideOrRemove() && groupObject.columnCount < 10) {
                 groupObject.columnSumWidth += property.getValueWidthWithPadding(formLayout);
                 groupObject.columnCount++;
                 groupObject.rowMaxHeight = Math.max(groupObject.rowMaxHeight, property.getValueHeightWithPadding(formLayout));
@@ -1768,17 +1788,17 @@ public class ClientFormController implements AsyncListener {
         rmiQueue.syncRequest(new RmiCheckNullFormRequest<Object>("runSingleGroupXlsExport") {
             @Override
             protected Object doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                return remoteForm.getGroupReportData(requestIndex, lastReceivedRequestIndex, groupController.getGroupObject().getID(), FormPrintType.XLSX, getUserPreferences());
+                return remoteForm.getGroupReportData(requestIndex, lastReceivedRequestIndex, groupController.getGroupObject().getID(), getUserPreferences());
             }
 
             @Override
             public void onResponse(long requestIndex, Object reportData) throws Exception {
                 if (reportData != null) {
-                    if (reportData instanceof RawFileData) {
-                        BaseUtils.openFile((RawFileData) reportData, "report", "csv");
+                    if (reportData instanceof FileData) {
+                        BaseUtils.openFile(((FileData) reportData).getRawFile(), "report", ((FileData) reportData).getExtension());
                     } else {
                         //assert generationData instanceof ReportGenerationData
-                        ReportGenerator.exportAndOpen((ReportGenerationData) reportData, FormPrintType.XLSX, MainController.jasperReportsIgnorePageMargins, MainController.remoteLogics);
+                        exportAndOpen((ReportGenerationData) reportData, FormPrintType.XLSX, MainController.jasperReportsIgnorePageMargins, MainController.remoteLogics);
                     }
                 }
             }
@@ -1967,6 +1987,7 @@ public class ClientFormController implements AsyncListener {
         public int priority;
         public BindingMode bindPreview;
         public BindingMode bindDialog;
+        public BindingMode bindWindow;
         public BindingMode bindGroup;
         public BindingMode bindEditing;
         public BindingMode bindShowing;
@@ -1995,6 +2016,8 @@ public class ClientFormController implements AsyncListener {
             binding.bindPreview = ks.bindingModes != null ? ks.bindingModes.getOrDefault("preview", BindingMode.AUTO) : BindingMode.AUTO;
         if(binding.bindDialog == null)
             binding.bindDialog = ks.bindingModes != null ? ks.bindingModes.getOrDefault("dialog", BindingMode.AUTO) : BindingMode.AUTO;
+        if(binding.bindWindow == null)
+            binding.bindWindow = ks.bindingModes != null ? ks.bindingModes.getOrDefault("window", BindingMode.AUTO) : BindingMode.AUTO;
         if(binding.bindGroup == null)
             binding.bindGroup = ks.bindingModes != null ? ks.bindingModes.getOrDefault("group", BindingMode.AUTO) : BindingMode.AUTO;
         if(binding.bindEditing == null)
@@ -2009,6 +2032,7 @@ public class ClientFormController implements AsyncListener {
     public void addKeySetBinding(Binding binding) {
         binding.bindPreview = BindingMode.NO;
         binding.bindDialog = BindingMode.AUTO;
+        binding.bindWindow = BindingMode.AUTO;
         binding.bindGroup = BindingMode.AUTO;
         binding.bindEditing = BindingMode.NO;
         binding.bindShowing = BindingMode.AUTO;
@@ -2031,30 +2055,9 @@ public class ClientFormController implements AsyncListener {
         }
     }
 
-    public boolean processBinding(InputEvent ks, boolean preview, java.awt.event.InputEvent ke, Supplier<ClientGroupObject> groupObjectSupplier, boolean panel) {
-        List<Binding> keyBinding = bindings.getOrDefault(ks, ks instanceof MouseInputEvent ? null : keySetBindings);
-        if(keyBinding != null && !keyBinding.isEmpty()) { // optimization
-            TreeMap<Integer, Binding> orderedBindings = new TreeMap<>();
-
-            // increasing priority for group object
-            ClientGroupObject groupObject = groupObjectSupplier.get();
-            for(Binding binding : keyBinding) // descending sorting by priority
-                if((binding.isSuitable == null || binding.isSuitable.apply(ke)) && bindPreview(binding, preview) && bindDialog(binding) && bindGroup(groupObject, binding)
-                        && bindEditing(binding, ke) && bindShowing(binding) && bindPanel(binding, panel))
-                        orderedBindings.put(-(binding.priority + (equalGroup(groupObject, binding) ? 100 : 0)), binding);
-
-            if(!orderedBindings.isEmpty())
-                commitOrCancelCurrentEditing();
-
-            for(Binding binding : orderedBindings.values()) {
-                if (binding.pressed(ke)) {
-                    ke.consume();
-
-                    return true;
-                }
-            }
-        }
-        return false;
+    public void processBinding(InputEvent ks, boolean preview, java.awt.event.InputEvent ke, Supplier<ClientGroupObject> groupObjectSupplier, boolean panel) {
+        ProcessBinding.processBinding(ks, preview, ke, groupObjectSupplier, panel, this::equalGroup, bindings, keySetBindings,
+                this::bindPreview, this::bindDialog, this::bindWindow, this::bindGroup, this::bindEditing, this::bindShowing, this::bindPanel, this::commitOrCancelCurrentEditing);
     }
 
     private boolean bindPreview(Binding binding, boolean preview) {
@@ -2080,6 +2083,19 @@ public class ClientFormController implements AsyncListener {
                 return isDialog();
             case NO:
                 return !isDialog();
+        }
+        return true;
+    }
+
+    private boolean bindWindow(Binding binding) {
+        switch (binding.bindWindow) {
+            case AUTO:
+            case ALL:
+                return true;
+            case ONLY:
+                return isWindow();
+            case NO:
+                return !isWindow();
         }
         return true;
     }

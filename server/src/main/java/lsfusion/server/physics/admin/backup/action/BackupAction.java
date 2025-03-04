@@ -5,6 +5,7 @@ import lsfusion.base.col.MapFact;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderMap;
 import lsfusion.base.col.interfaces.immutable.ImRevMap;
+import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.base.file.IOUtils;
 import lsfusion.interop.session.ExternalUtils;
 import lsfusion.server.data.expr.key.KeyExpr;
@@ -14,11 +15,14 @@ import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.language.ScriptingErrorLog;
 import lsfusion.server.language.ScriptingLogicsModule;
+import lsfusion.server.logics.action.Action;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.classes.user.ConcreteCustomClass;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import lsfusion.server.physics.dev.integration.internal.to.InternalAction;
+import lsfusion.server.physics.exec.db.controller.manager.DBManager;
+import org.apache.commons.io.FilenameUtils;
 
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -37,32 +41,33 @@ public class BackupAction extends InternalAction {
     }
 
     protected void makeBackup(ExecutionContext context, boolean partial) {
-        try (ExecutionContext.NewSession newContext = context.newSession()) {
+        DBManager dbManager = context.getDbManager();
+        if (dbManager.checkBackupParams(context)) {
 
-            Integer threadCount = (Integer) findProperty("threadCount[]").read(newContext);
-            if(threadCount == null || threadCount < 1) {
-                threadCount = 1;
-            }
+            try (ExecutionContext.NewSession newContext = context.newSession()) {
 
-            String backupFileName = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
+                Integer threadCount = (Integer) findProperty("threadCount[]").read(newContext);
+                if (threadCount == null || threadCount < 1) {
+                    threadCount = 1;
+                }
 
-            List<String> excludeTables = partial ? getExcludeTables(context) : new ArrayList<>();
+                String backupFileName = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
 
-            String backupFilePath = context.getDbManager().getBackupFilePath(backupFileName);
-            if (backupFilePath != null) {
-                String backupFileLogPath = backupFilePath + ".log";
-                String backupFileExtension = backupFilePath.substring(backupFilePath.lastIndexOf("."));
+                List<String> excludeTables = partial ? getExcludeTables(context) : new ArrayList<>();
+
+                String backupFilePath = dbManager.getBackupFilePath(backupFileName);
+                String backupFileLogPath = dbManager.getBackupFileLogPath(backupFileName);
 
                 DataObject backupObject = newContext.addObject((ConcreteCustomClass) findClass("Backup"));
                 LocalDateTime currentDateTime = LocalDateTime.now();
                 findProperty("date[Backup]").change(currentDateTime.toLocalDate(), newContext, backupObject);
                 findProperty("time[Backup]").change(currentDateTime.toLocalTime(), newContext, backupObject);
                 findProperty("file[Backup]").change(backupFilePath, newContext, backupObject);
-                findProperty("name[Backup]").change(backupFileName + backupFileExtension, newContext, backupObject);
+                findProperty("name[Backup]").change(FilenameUtils.getName(backupFilePath), newContext, backupObject);
                 findProperty("fileLog[Backup]").change(backupFileLogPath, newContext, backupObject);
                 findProperty("isMultithread[Backup]").change(threadCount > 1, newContext, backupObject);
 
-                if(partial) {
+                if (partial) {
                     findProperty("partial[Backup]").change(true, newContext, backupObject);
                     for (String excludeTable : excludeTables) {
                         ObjectValue tableObject = findProperty("table[ISTRING[100]]").readClasses(newContext, new DataObject(excludeTable));
@@ -73,15 +78,15 @@ public class BackupAction extends InternalAction {
 
                 newContext.apply();
 
-                backupObject = new DataObject((Long)backupObject.object, (ConcreteCustomClass)findClass("Backup")); // обновляем класс после backup
+                backupObject = new DataObject((Long) backupObject.object, (ConcreteCustomClass) findClass("Backup")); // обновляем класс после backup
 
-                context.getDbManager().backupDB(context, backupFileName, threadCount, excludeTables);
+                dbManager.backupDB(context, backupFileName, threadCount, excludeTables);
 
                 findProperty("log[Backup]").change(IOUtils.readFileToString(backupFileLogPath, ExternalUtils.resourceCharset.name()), newContext, backupObject);
                 newContext.apply();
+            } catch (Exception e) {
+                throw Throwables.propagate(e);
             }
-        } catch (Exception e) {
-            throw Throwables.propagate(e);
         }
     }
 
@@ -106,7 +111,7 @@ public class BackupAction extends InternalAction {
     }
 
     @Override
-    public ImMap<Property, Boolean> aspectChangeExtProps() {
+    public ImMap<Property, Boolean> aspectChangeExtProps(ImSet<Action<?>> recursiveAbstracts) {
         try {
             return getChangeProps(findProperty("date[Backup]").property, findProperty("time[Backup]").property);
         } catch (ScriptingErrorLog.SemanticErrorException e) {

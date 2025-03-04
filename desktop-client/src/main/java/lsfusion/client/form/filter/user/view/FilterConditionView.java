@@ -73,11 +73,13 @@ public class FilterConditionView extends FlexPanel implements CaptionContainerHo
     
     // may not be applied without "Allow NULL", but we want to keep condition visible
     public boolean confirmed;
+    
+    private boolean applied;
 
     private boolean innerValueChange = false;
     
     public FilterConditionView(ClientPropertyFilter ifilter, TableController logicsSupplier, UIHandler iuiHandler, 
-                               ColumnsProvider columnsProvider, boolean controlsVisible, EventObject keyEvent, boolean readSelectedValue) {
+                               ColumnsProvider columnsProvider, boolean controlsVisible, boolean readSelectedValue) {
         super(false, FlexAlignment.START);
         condition = ifilter;
         this.logicsSupplier = logicsSupplier;
@@ -169,7 +171,7 @@ public class FilterConditionView extends FlexPanel implements CaptionContainerHo
         compareView.setVisible(!isFixed() || controlsVisible);
         leftPanel.addCentered(compareView);
 
-        valueView = new DataFilterValueView(condition, logicsSupplier, keyEvent, readSelectedValue) {
+        valueView = new DataFilterValueView(condition, logicsSupplier, readSelectedValue) {
             @Override
             public void valueChanged(Object newValue) {
                 super.valueChanged(newValue);
@@ -376,8 +378,13 @@ public class FilterConditionView extends FlexPanel implements CaptionContainerHo
         compareView.hidePopup();
         uiHandler.removeCondition(condition);
     }
+    
+    public boolean isApplied() {
+        return applied;
+    }
 
     public void setApplied(boolean applied) {
+        this.applied = applied;
         valueView.setApplied(applied);
     }
 

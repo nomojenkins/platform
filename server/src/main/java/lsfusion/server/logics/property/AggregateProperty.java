@@ -2,6 +2,7 @@ package lsfusion.server.logics.property;
 
 import lsfusion.base.BaseUtils;
 import lsfusion.base.Pair;
+import lsfusion.base.Result;
 import lsfusion.base.col.ListFact;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.interfaces.immutable.*;
@@ -34,6 +35,7 @@ import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.action.session.change.PropertyChange;
 import lsfusion.server.logics.action.session.change.PropertyChanges;
 import lsfusion.server.logics.action.session.change.StructChanges;
+import lsfusion.server.logics.action.session.table.PropertyChangeTableUsage;
 import lsfusion.server.logics.classes.user.BaseClass;
 import lsfusion.server.logics.property.cases.CaseUnionProperty;
 import lsfusion.server.logics.property.classes.infer.*;
@@ -92,11 +94,9 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
         return false;
     }
 
-    public boolean calculateCheckRecursions(ImSet<CaseUnionProperty> abstractPath, ImSet<Property> path, Set<Property> marks) {
-        for(Property depend : getDepends())
-            if(depend.checkRecursions(abstractPath, path, marks))
-                return true;
-        return false;
+    public void calculateCheckRecursions(Set<Property<?>> path, Set<Property<?>> localMarks, Set<Property<?>> marks, boolean usePrev) {
+        for (Property<?> depend : getDepends())
+            depend.checkRecursions(path, localMarks, marks, usePrev);
     }
 
     public boolean isStored() {
@@ -108,18 +108,16 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
         super(caption,interfaces);
     }
 
-    public String checkMaterialization(SQLSession session, BaseClass baseClass) throws SQLException, SQLHandledException {
-        return checkMaterialization(session, null, baseClass, null);
-    }
-
-    public String checkMaterialization(SQLSession session, BaseClass baseClass, ProgressBar progressBar) throws SQLException, SQLHandledException {
-        return checkMaterialization(session, null, baseClass, progressBar);
+    public String checkMaterialization(SQLSession session, BaseClass baseClass, boolean runInTransaction) throws SQLException, SQLHandledException {
+        return checkMaterialization(session, baseClass, null, runInTransaction);
     }
 
     // проверяет агрегацию для отладки
     @ThisMessage
     @StackProgress
-    public String checkMaterialization(SQLSession session, QueryEnvironment env, BaseClass baseClass, @StackProgress ProgressBar progressBar) throws SQLException, SQLHandledException {
+    public String checkMaterialization(SQLSession session, BaseClass baseClass, @StackProgress ProgressBar progressBar, boolean runInTransaction) throws SQLException, SQLHandledException {
+        QueryEnvironment env = DataSession.emptyEnv(OperationOwner.unknown);
+
         session.pushVolatileStats(OperationOwner.unknown);
         
         try {
@@ -130,10 +128,13 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
 
             String checkClasses = "";
             if(useRecalculate)
-                checkClasses = env == null ? DataSession.checkClasses(this, session, baseClass) : DataSession.checkClasses(this, session, env, baseClass);
-    
-            ImOrderMap<ImMap<T, Object>, ImMap<String, Object>> checkResult = env == null ? getRecalculateQuery(true, baseClass, !useRecalculate).execute(session, OperationOwner.unknown)
-                    : getRecalculateQuery(true, baseClass, !useRecalculate).execute(session, env);
+                checkClasses = checkClasses(session, runInTransaction, env, baseClass);
+
+            Query<T, String> checkQuery = getCheckQuery(baseClass, !useRecalculate);
+
+            Result<ImOrderMap<ImMap<T, Object>, ImMap<String, Object>>> rCheckResult = new Result<>();
+            DBManager.run(session, runInTransaction, DBManager.CHECK_MAT_TIL, sql -> rCheckResult.set(checkQuery.execute(sql, env)));
+            ImOrderMap<ImMap<T, Object>, ImMap<String, Object>> checkResult = rCheckResult.result;
             if(!checkResult.isEmpty() || !checkClasses.isEmpty()) {
                 message += "---- Checking Materializations : " + this + "-----" + '\n';
                 message += checkClasses;
@@ -147,11 +148,11 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
         }
     }
 
-    private Query<T, String> getRecalculateQuery(boolean outDB, BaseClass baseClass, boolean checkInconsistence) {
-        return getRecalculateQuery(outDB, baseClass, checkInconsistence, null);
+    private Query<T, String> getCheckQuery(BaseClass baseClass, boolean checkInconsistence) {
+        return getRecalculateQuery(true, true, baseClass, checkInconsistence, null);
     }
 
-    private Query<T, String> getRecalculateQuery(boolean outDB, BaseClass baseClass, boolean checkInconsistence, PropertyChange<T> where) {
+    private Query<T, String> getRecalculateQuery(boolean outDB, boolean onlyChanges, BaseClass baseClass, boolean checkInconsistence, PropertyChange<T> where) {
         assert isStored();
         
         QueryBuilder<T, String> query = new QueryBuilder<>(this);
@@ -162,10 +163,10 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
         Expr calculateExpr = aspectCalculateExpr(query.getMapExprs(), isFullProperty() ? CalcType.RECALC : CalcType.EXPR, PropertyChanges.EMPTY, null);  // оптимизация - только для FULL свойств, так как в остальных лучше использовать кэш по EXPR
         if(outDB)
             query.addProperty("dbvalue", dbExpr);
-        query.addProperty("calcvalue", calculateExpr);
+        query.addProperty(onlyChanges && !outDB ? "value" : "calcvalue", calculateExpr); // value - the same as in PropertyChangeTable
         query.and(dbExpr.getWhere().or(calculateExpr.getWhere()));
         
-        if(outDB || !DBManager.RECALC_REUPDATE)
+        if(onlyChanges || !DBManager.RECALC_REUPDATE)
             query.and(dbExpr.compare(calculateExpr, Compare.EQUALS).not().and(dbExpr.getWhere().or(calculateExpr.getWhere())));
         return query.getQuery();
     }
@@ -177,12 +178,12 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
 
     public static AggregateProperty recalculate = null;
 
-    public void recalculateMaterialization(BusinessLogics BL, DataSession session, SQLSession sql, BaseClass baseClass) throws SQLException, SQLHandledException {
-        recalculateMaterialization(BL, session, sql, baseClass, null, true);
+    public void recalculateMaterialization(BusinessLogics BL, DataSession session, SQLSession sql, boolean runInTransaction, BaseClass baseClass) throws SQLException, SQLHandledException {
+        recalculateMaterialization(BL, session, sql, baseClass, null, null, runInTransaction);
     }
 
-    public void recalculateMaterialization(BusinessLogics BL, DataSession session, SQLSession sql, BaseClass baseClass, PropertyChange<T> where, boolean recalculateClasses) throws SQLException, SQLHandledException {
-        recalculateMaterialization(sql, null, baseClass, where, recalculateClasses);
+    public void recalculateMaterialization(BusinessLogics BL, DataSession session, SQLSession sql, BaseClass baseClass, PropertyChange<T> where, Boolean recalculateClasses, boolean runInTransaction) throws SQLException, SQLHandledException {
+        recalculateMaterialization(sql, runInTransaction, baseClass, where, recalculateClasses);
 
         ObjectValue propertyObject = BL.reflectionLM.propertyCanonicalName.readClasses(session, new DataObject(getCanonicalName()));
         if (propertyObject instanceof DataObject)
@@ -191,19 +192,40 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
 
     @StackMessage("{logics.info.recalculation.of.materialized.property}")
     @ThisMessage
-    public void recalculateMaterialization(SQLSession session, QueryEnvironment env, BaseClass baseClass, PropertyChange<T> where, boolean recalculateClasses) throws SQLException, SQLHandledException {
-        boolean useRecalculate = recalculateClasses && (Settings.get().isUseRecalculateClassesInsteadOfInconsisentExpr() || where != null);
-        if(useRecalculate)
-            recalculateClasses(session, env, baseClass);
+    public void recalculateMaterialization(SQLSession sql, boolean runInTransaction, BaseClass baseClass, PropertyChange<T> where, Boolean recalculateClasses) throws SQLException, SQLHandledException {
+        boolean classesAreValid = recalculateClasses != null && !recalculateClasses; // NOCLASSES
+        if (!classesAreValid && (recalculateClasses != null || Settings.get().isUseRecalculateClassesInsteadOfInconsisentExpr())) {
+            recalculateClasses(sql, runInTransaction, baseClass, where);
 
-        session.pushVolatileStats(OperationOwner.unknown);
-        try {
-            session.modifyRecords(
-                    new ModifyQuery(mapTable.table, getRecalculateQuery(false, baseClass, !useRecalculate, where).map(
-                            mapTable.mapKeys.reverse(), MapFact.singletonRev(field, "calcvalue")), env == null ? DataSession.emptyEnv(OperationOwner.unknown) : env, TableOwner.global)
-                    );
-        } finally {
-            session.popVolatileStats(OperationOwner.unknown);
+            classesAreValid = true;
+        }
+
+        if(recalculateClasses == null || !recalculateClasses) { // ALL || NOCLASSES
+            boolean serializable = DBManager.RECALC_MAT_TIL;
+            boolean mixedSerializable = runInTransaction && !serializable && Settings.get().isRecalculateMaterializationsMixedSerializable();
+
+            Query<T, String> recalculateQuery = getRecalculateQuery(false, mixedSerializable, baseClass, !classesAreValid, where);
+
+            OperationOwner opOwner = OperationOwner.unknown;
+            sql.pushVolatileStats(opOwner);
+
+            PropertyChangeTableUsage<T> table = null;
+            try {
+                if (mixedSerializable) {
+                    table = createChangeTable("recmt");
+                    table.writeRows(sql, recalculateQuery, baseClass, DataSession.emptyEnv(opOwner), false);
+                    recalculateQuery = getRecalculateQuery(false, false, baseClass, !classesAreValid, PropertyChangeTableUsage.getChange(table));
+                    serializable = true;
+                }
+
+                ModifyQuery modifyQuery = new ModifyQuery(mapTable.table, recalculateQuery.map(mapTable.mapKeys.reverse(), MapFact.singletonRev(field, "calcvalue")), opOwner, TableOwner.global);
+                DBManager.run(sql, runInTransaction, serializable, session -> session.modifyRecords(modifyQuery));
+            } finally {
+                if (table != null)
+                    table.drop(sql, opOwner);
+
+                sql.popVolatileStats(opOwner);
+            }
         }
     }
     

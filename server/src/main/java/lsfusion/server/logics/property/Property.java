@@ -4,6 +4,7 @@ import com.google.common.base.Throwables;
 import lsfusion.base.BaseUtils;
 import lsfusion.base.ExceptionUtils;
 import lsfusion.base.Pair;
+import lsfusion.base.Result;
 import lsfusion.base.col.ListFact;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
@@ -16,6 +17,7 @@ import lsfusion.interop.action.ServerResponse;
 import lsfusion.interop.form.property.ClassViewType;
 import lsfusion.interop.form.property.Compare;
 import lsfusion.server.base.caches.*;
+import lsfusion.server.base.controller.stack.ParamMessage;
 import lsfusion.server.base.controller.stack.StackMessage;
 import lsfusion.server.base.controller.stack.ThisMessage;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
@@ -50,6 +52,7 @@ import lsfusion.server.data.table.*;
 import lsfusion.server.data.type.AbstractType;
 import lsfusion.server.data.type.Type;
 import lsfusion.server.data.value.DataObject;
+import lsfusion.server.data.value.NullValue;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.data.where.Where;
 import lsfusion.server.data.where.WhereBuilder;
@@ -62,9 +65,11 @@ import lsfusion.server.logics.BaseLogicsModule;
 import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.LogicsModule;
 import lsfusion.server.logics.action.Action;
+import lsfusion.server.logics.action.SystemAction;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.controller.context.ExecutionEnvironment;
 import lsfusion.server.logics.action.controller.stack.ExecutionStack;
+import lsfusion.server.logics.action.flow.FlowResult;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.action.session.change.*;
@@ -102,7 +107,9 @@ import lsfusion.server.logics.form.struct.filter.ContextFilterEntity;
 import lsfusion.server.logics.form.struct.property.PropertyClassImplement;
 import lsfusion.server.logics.form.struct.property.PropertyDrawEntity;
 import lsfusion.server.logics.form.struct.property.oraction.ActionOrPropertyClassImplement;
+import lsfusion.server.logics.navigator.controller.env.ChangesController;
 import lsfusion.server.logics.property.cases.CaseUnionProperty;
+import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import lsfusion.server.logics.property.classes.IsClassProperty;
 import lsfusion.server.logics.property.classes.infer.*;
 import lsfusion.server.logics.property.classes.user.ClassDataProperty;
@@ -116,6 +123,7 @@ import lsfusion.server.logics.property.value.ValueProperty;
 import lsfusion.server.physics.admin.Settings;
 import lsfusion.server.physics.admin.SystemProperties;
 import lsfusion.server.physics.admin.drilldown.form.DrillDownFormEntity;
+import lsfusion.server.physics.dev.debug.DebugInfo;
 import lsfusion.server.physics.dev.debug.PropertyDebugInfo;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.dev.id.name.DBNamingPolicy;
@@ -127,6 +135,8 @@ import lsfusion.server.physics.exec.db.table.TableFactory;
 import lsfusion.server.physics.exec.hint.AutoHintsAspect;
 
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
@@ -417,6 +427,31 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
             }
         });
 
+    }
+
+    public enum Lazy {WEAK, STRONG}
+
+    protected Lazy lazy;
+
+    public boolean isLazyStrong() {
+        return lazy == Lazy.STRONG;
+    }
+
+    public void setLazy(Lazy lazy, DebugInfo.DebugPoint debugPoint) {
+        this.lazy = lazy;
+        if (isLazyStrong()) {
+            SystemAction flushAction = new SystemAction(LocalizedString.NONAME, (ImOrderSet<PropertyInterface>) getFriendlyOrderInterfaces()) {
+                @Override
+                protected FlowResult aspectExecute(ExecutionContext<PropertyInterface> context) {
+                    context.getSession().addChangePropKeys(Property.this, context.getKeys());
+                    return FlowResult.FINISH;
+                }
+            };
+            PropertyMapImplement where = getImplement().mapChanged(IncrementType.CHANGED, PrevScope.EVENT);
+            getBaseLM().addWhenAction(flushAction.interfaces, flushAction.getImplement(),
+                    where, null, MapFact.EMPTYORDER(), false,
+                    Event.APPLY, SetFact.EMPTY(), false, debugPoint, null);
+        }
     }
 
     public void change(ExecutionContext context, Boolean value) throws SQLException, SQLHandledException {
@@ -1077,7 +1112,13 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     }
 
     public boolean hasChanges(Modifier modifier) throws SQLException, SQLHandledException {
-        return hasChanges(modifier.getPropertyChanges());
+        return hasChanges(modifier, false);
+    }
+    public boolean hasChanges(Modifier modifier, boolean prevChanges) throws SQLException, SQLHandledException {
+        PropertyChanges propertyChanges = modifier.getPropertyChanges();
+        if(prevChanges)
+            propertyChanges = propertyChanges.getPrev();
+        return hasChanges(propertyChanges);
     }
     public boolean hasChanges(PropertyChanges propChanges) {
         return hasChanges(propChanges.getStruct());
@@ -1200,6 +1241,10 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         }
     }
 
+    public void unmarkStored() {
+        markedStored = false;
+    }
+
     public String mapDbName;
 
     public String getDBName() {
@@ -1220,6 +1265,20 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         mapTable.table.addField(field, fieldClassWhere);
 
         this.field = field;
+    }
+
+    public void destroyStored(DBNamingPolicy policy) {
+        if(mapTable != null) {
+            String dbName = mapDbName != null ? mapDbName : policy.transformActionOrPropertyCNToDBName(this.canonicalName);
+
+            PropertyField field = new PropertyField(dbName, getType());
+            fieldClassWhere = getClassWhere(mapTable, field);
+            mapTable.table.removeField(field);
+
+            mapTable = null;
+            fieldClassWhere = null;
+            this.field = null;
+        }
     }
 
     public static class DuplicateFieldNameException extends RuntimeException {
@@ -1243,7 +1302,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     }
 
     public void markIndexed(final ImRevMap<T, String> mapping, ImList<PropertyObjectInterfaceImplement<String>> index, IndexType indexType) {
-        assert isStored();
+        assert isMarkedStored();
 
         ImList<Field> indexFields = index.mapListValues((PropertyObjectInterfaceImplement<String> indexField) -> {
             if (indexField instanceof PropertyObjectImplement) {
@@ -1303,6 +1362,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return type.getInterfaceClasses(this, valueClasses);
     }
 
+    @IdentityLazy
     public Type getType() {
         ValueClass valueClass = getValueClass(ClassType.typePolicy);
         return valueClass != null ? valueClass.getType() : null;
@@ -1461,7 +1521,38 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return getClassValueWhere(AlgType.storedType).remap(MapFact.addRevExcl(mapTable.mapKeys, "value", storedField)); //
     }
 
-    public Pair<ObjectValue, Boolean> readClassesChanged(SQLSession session, ImMap<T, ObjectValue> keys, BaseClass baseClass, Modifier modifier, boolean hasChanges, QueryEnvironment env) throws SQLException, SQLHandledException {
+    public ObjectValue readLazyClasses(SQLSession session, ImMap<T, ? extends ObjectValue> keys, Modifier modifier, ChangesController changesController, QueryEnvironment env) throws SQLException, SQLHandledException {
+        return readLazyClasses(session, keys, modifier, false, changesController, env);
+    }
+    public ObjectValue readLazyClasses(SQLSession session, ImMap<T, ? extends ObjectValue> keys, Modifier modifier, boolean prevChanges, ChangesController changesController, QueryEnvironment env) throws SQLException, SQLHandledException {
+        if (lazy != null && !hasChanges(modifier, prevChanges) && !session.isInTransaction())
+            return changesController.readLazyValue(this, keys);
+        if (this instanceof SessionDataProperty) {
+            // maybe can be done not only for all properties (not only SessionDataProperty)
+            ModifyChange<T> modify = modifier.getPropertyChanges().getModify(this);
+            if(modify != null) {
+                ImMap<T, Expr> mapExprs = modify.change.getMapExprs();
+                ImMap<T, ObjectValue> changeKeys; ObjectValue changeValue;
+                if (mapExprs.size() == keys.size() && (changeKeys = Expr.getObjectValues(mapExprs, env)) != null && keys.equals(changeKeys) && (changeValue = modify.change.expr.getObjectValue(env)) != null)
+                    return changeValue;
+            }
+
+            if (!hasChanges(modifier, prevChanges))
+                return NullValue.instance;
+        }
+        return null;
+    }
+    public ImMap<ImMap<T, DataObject>, DataObject> readAllLazyClasses(SQLSession session, Modifier modifier, ChangesController changesController) throws SQLException, SQLHandledException {
+        if (this instanceof SessionDataProperty && !hasChanges(modifier, false))
+            return MapFact.EMPTY();
+        return null;
+    }
+
+    public Pair<ObjectValue, Boolean> readClassesChanged(SQLSession session, ImMap<T, ObjectValue> keys, BaseClass baseClass, Modifier modifier, boolean hasChanges, QueryEnvironment env, ChangesController changesController) throws SQLException, SQLHandledException {
+        ObjectValue lazyValue = readLazyClasses(session, keys, modifier, !hasChanges, changesController, env);
+        if(lazyValue != null)
+            return new Pair<>(lazyValue, false);
+
         String readValue = "readvalue"; String readChanged = "readChanged";
         QueryBuilder<T, Object> readQuery = new QueryBuilder<>(SetFact.EMPTY());
         WhereBuilder changedWhere = new WhereBuilder();
@@ -1471,21 +1562,37 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return new Pair<>(result.get(readValue), !result.get(readChanged).isNull());
     }
 
-    public ObjectValue readClasses(SQLSession session, ImMap<T, Expr> keys, BaseClass baseClass, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
+    public ObjectValue readClasses(SQLSession session, ImMap<T, ? extends ObjectValue> keys, BaseClass baseClass, Modifier modifier, QueryEnvironment env, ChangesController changesController) throws SQLException, SQLHandledException {
+        ObjectValue lazyValue = readLazyClasses(session, keys, modifier, changesController, env);
+        if(lazyValue != null)
+            return lazyValue;
+
+        return readClasses(session, keys, baseClass, modifier, env);
+    }
+
+    public ObjectValue readClasses(SQLSession session, ImMap<T, ? extends ObjectValue> keys, BaseClass baseClass, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
         String readValue = "readvalue";
         QueryBuilder<T, Object> readQuery = new QueryBuilder<>(SetFact.EMPTY());
-        readQuery.addProperty(readValue, getExpr(keys, modifier));
+        readQuery.addProperty(readValue, getExpr(ObjectValue.getMapExprs(keys), modifier));
         return readQuery.executeClasses(session, env, baseClass).singleValue().get(readValue);
     }
 
-    public Object read(SQLSession session, ImMap<T, ? extends ObjectValue> keys, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
+    public Object read(SQLSession session, ImMap<T, ? extends ObjectValue> keys, Modifier modifier, QueryEnvironment env, ChangesController changesController) throws SQLException, SQLHandledException {
+        ObjectValue lazyValue = readLazyClasses(session, keys, modifier, changesController, env);
+        if(lazyValue != null)
+            return lazyValue.getValue();
+
         String readValue = "readvalue";
         QueryBuilder<T, Object> readQuery = new QueryBuilder<>(SetFact.EMPTY());
         readQuery.addProperty(readValue, getExpr(ObjectValue.getMapExprs(keys), modifier));
         return readQuery.execute(session, env).singleValue().get(readValue);
     }
 
-    public ImMap<ImMap<T, Object>, Object> readAll(SQLSession session, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
+    public ImMap<ImMap<T, Object>, Object> readAll(SQLSession session, Modifier modifier, QueryEnvironment env, ChangesController changesController) throws SQLException, SQLHandledException {
+        ImMap<ImMap<T, DataObject>, DataObject> lazyValues = readAllLazyClasses(session, modifier, changesController);
+        if(lazyValues != null)
+            return lazyValues.mapKeyValues(key -> key.mapValues(value -> value.getValue()), value -> value.getValue());
+
         String readValue = "readvalue";
         QueryBuilder<T, Object> readQuery = new QueryBuilder<>(interfaces);
         Expr expr = getExpr(readQuery.getMapExprs(), modifier);
@@ -1494,7 +1601,11 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return readQuery.execute(session, env).getMap().mapValues(ImMap::singleValue);
     }
 
-    public ImMap<ImMap<T, DataObject>, DataObject> readAllClasses(SQLSession session, Modifier modifier, QueryEnvironment env, BaseClass baseClass) throws SQLException, SQLHandledException {
+    public ImMap<ImMap<T, DataObject>, DataObject> readAllClasses(SQLSession session, Modifier modifier, QueryEnvironment env, BaseClass baseClass, ChangesController changesController) throws SQLException, SQLHandledException {
+        ImMap<ImMap<T, DataObject>, DataObject> lazyValues = readAllLazyClasses(session, modifier, changesController);
+        if(lazyValues != null)
+            return lazyValues;
+
         String readValue = "readvalue";
         QueryBuilder<T, Object> readQuery = new QueryBuilder<>(interfaces);
         Expr expr = getExpr(readQuery.getMapExprs(), modifier);
@@ -1511,7 +1622,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     }
 
     public Object read(ExecutionEnvironment env, ImMap<T, ? extends ObjectValue> keys) throws SQLException, SQLHandledException {
-        return read(env.getSession().sql, keys, env.getModifier(), env.getQueryEnv());
+        return read(env.getSession(), keys, env.getModifier(), env.getQueryEnv());
     }
 
     public ObjectValue readClasses(FormInstance form, ImMap<T, ? extends ObjectValue> keys) throws SQLException, SQLHandledException {
@@ -1523,14 +1634,20 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     }
 
     public ObjectValue readClasses(DataSession session, ImMap<T, ? extends ObjectValue> keys, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
-        return readClasses(session.sql, ObjectValue.getMapExprs(keys), session.baseClass, modifier, env);
+        return readClasses(session.sql, keys, session.baseClass, modifier, env, session.changes);
+    }
+
+    public Object read(DataSession session, ImMap<T, ? extends ObjectValue> keys, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
+        return read(session.sql, keys, modifier, env, session.changes);
     }
 
     public ImMap<ImMap<T, Object>, Object> readAll(ExecutionEnvironment env) throws SQLException, SQLHandledException {
-        return readAll(env.getSession().sql, env.getModifier(), env.getQueryEnv());
+        DataSession session = env.getSession();
+        return readAll(session.sql, env.getModifier(), env.getQueryEnv(), session.changes);
     }
     public ImMap<ImMap<T, DataObject>, DataObject> readAllClasses(ExecutionEnvironment env) throws SQLException, SQLHandledException {
-        return readAllClasses(env.getSession().sql, env.getModifier(), env.getQueryEnv(), env.getSession().baseClass);
+        DataSession session = env.getSession();
+        return readAllClasses(session.sql, env.getModifier(), env.getQueryEnv(), env.getSession().baseClass, session.changes);
     }
 
     // используется для оптимизации - если Stored то попытать использовать это значение
@@ -2451,19 +2568,58 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return getComplexity(false);
     }
 
-    public void recalculateClasses(SQLSession sql, BaseClass baseClass) throws SQLException, SQLHandledException {
-        recalculateClasses(sql, null, baseClass);
+    @StackMessage("{logics.recalculating.data.classes}")
+    public void recalculateClasses(SQLSession sql, boolean runInTransaction, BaseClass baseClass, PropertyChange<T> where) throws SQLException, SQLHandledException {
+        assert isStored();
+
+        ImRevMap<KeyField, KeyExpr> mapKeys = mapTable.table.getMapKeys();
+        ImRevMap<T, KeyExpr> mapExprs = mapTable.mapKeys.join(mapKeys);
+        Where incorrectWhere = getIncorrectWhere(baseClass, mapExprs);
+
+        if(where != null)
+            incorrectWhere = incorrectWhere.and(where.getWhere(mapExprs));
+
+        Query<KeyField, PropertyField> query = new Query<>(mapKeys, Expr.NULL(), field, incorrectWhere);
+
+        ModifyQuery modifyQuery = new ModifyQuery(mapTable.table, query, OperationOwner.unknown, TableOwner.global);
+        DBManager.run(sql, runInTransaction, DBManager.RECALC_CLASSES_TIL, sql1 -> sql1.updateRecords(modifyQuery));
     }
 
-    @StackMessage("{logics.recalculating.data.classes}")
-    public void recalculateClasses(SQLSession sql, QueryEnvironment env, BaseClass baseClass) throws SQLException, SQLHandledException {
-        assert isStored();
-        
-        ImRevMap<KeyField, KeyExpr> mapKeys = mapTable.table.getMapKeys();
-        Where where = DataSession.getIncorrectWhere(this, baseClass, mapTable.mapKeys.join(mapKeys));
-        Query<KeyField, PropertyField> query = new Query<>(mapKeys, Expr.NULL(), field, where);
-        sql.updateRecords(env == null ? new ModifyQuery(mapTable.table, query, OperationOwner.unknown, TableOwner.global) : new ModifyQuery(mapTable.table, query, env, TableOwner.global));
+    public String checkClasses(SQLSession sql, boolean runInTransaction, BaseClass baseClass) throws SQLException, SQLHandledException {
+        return checkClasses(sql, runInTransaction, DataSession.emptyEnv(OperationOwner.unknown), baseClass);
     }
+
+    @StackMessage("{logics.checking.data.classes}")
+    @ThisMessage
+    public String checkClasses(SQLSession sql, boolean runInTransaction, QueryEnvironment env, BaseClass baseClass) throws SQLException, SQLHandledException {
+        assert isStored();
+
+        ImRevMap<T, KeyExpr> mapKeys = getMapKeys();
+        Where where = getIncorrectWhere(baseClass, mapKeys);
+        Query<T, String> query = new Query<>(mapKeys, where);
+
+        Result<String> incorrect = new Result<>();
+        DBManager.run(sql, runInTransaction, DBManager.CHECK_CLASSES_TIL, sql1 -> incorrect.set(query.readSelect(sql1, env)));
+        if(!incorrect.result.isEmpty())
+            return "---- Checking Classes for " + (this instanceof DataProperty ? "data" : "aggregate") + " property : " + this + "-----" + '\n' + incorrect.result;
+        return "";
+    }
+
+    private Where getIncorrectWhere(BaseClass baseClass, final ImRevMap<T, KeyExpr> mapKeys) {
+        assert isStored();
+
+        final Expr dataExpr = getInconsistentExpr(mapKeys, baseClass);
+
+        Where correctClasses = getClassValueWhere(AlgType.storedType).getWhere(value -> {
+            if(value instanceof PropertyInterface) {
+                return mapKeys.get((T)value);
+            }
+            assert value.equals("value");
+            return dataExpr;
+        }, true, IsClassType.INCONSISTENT);
+        return dataExpr.getWhere().and(correctClasses.not());
+    }
+
 
     public void setDebugInfo(PropertyDebugInfo debugInfo) {
         this.debugInfo = debugInfo;
@@ -2528,18 +2684,44 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return SetFact.EMPTY();
     }
     
-    public boolean checkRecursions(ImSet<CaseUnionProperty> abstractPath, ImSet<Property> path, Set<Property> marks) {
-        if(path != null)
-            path = path.addExcl(this);
-        else {
-            if(!marks.add(this))
-                return false;
+    // Cycles are detected using a modified depth-first search.
+    // The modification adds global markers because the algorithm runs from different graph vertices simultaneously in
+    // multiple threads. Once a vertex is fully processed, it is marked globally, preventing other threads from
+    // revisiting it since no cycle was found there.
+    public void checkRecursions(Set<Property<?>> path, Set<Property<?>> localMarks, Set<Property<?>> marks, boolean usePrev) {
+        if (path.contains(this)) {
+            throw new ScriptParsingException("Property " + this + " is recursive. One of the paths: " + findCycle(path));
         }
-        return calculateCheckRecursions(abstractPath, path, marks);
+        
+        if (localMarks.contains(this) || marks.contains(this)) return;
+        
+        path.add(this);
+        localMarks.add(this);
+        
+        calculateCheckRecursions(path, localMarks, marks, usePrev);
+        
+        path.remove(this);
+        marks.add(this);
     }
-
-    public boolean calculateCheckRecursions(ImSet<CaseUnionProperty> abstractPath, ImSet<Property> path, Set<Property> marks) {
-        return false;
+    
+    private List<Property<?>> findCycle(Set<Property<?>> path) {
+        List<Property<?>> cycle = new ArrayList<>();
+        boolean found = false;
+        
+        for (Property<?> property : path) {
+            if (property.equals(this)) {
+                found = true;
+            }
+            if (found) {
+                cycle.add(property);
+            }
+        }
+        
+        cycle.add(this);
+        return cycle;
+    }
+    
+    public void calculateCheckRecursions(Set<Property<?>> path, Set<Property<?>> localMarks, Set<Property<?>> marks, boolean usePrev) {
     }
 
     @Override

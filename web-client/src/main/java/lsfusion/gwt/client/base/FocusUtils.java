@@ -66,6 +66,7 @@ public class FocusUtils {
                 // it's really odd to start editing while scrolling, and other navigating
                 case SCROLLNAVIGATE:
                 case KEYMOVENAVIGATE:
+                case FOCUSNAVIGATE:
                 // CHANGE will be started anyway
                 case BINDING:
                 // really odd behaviour to start editing (dropdown list) when focus is returned
@@ -99,6 +100,7 @@ public class FocusUtils {
         KEYNEXTNAVIGATE, // ENTER
         MOUSENAVIGATE, // MOUSE CLICK
         SCROLLNAVIGATE, // SCROLL
+        FOCUSNAVIGATE,
 
         MOUSECHANGE,
         BINDING,
@@ -113,7 +115,7 @@ public class FocusUtils {
         }
 
         public boolean preventScroll() {
-            return this == RESTOREFOCUS || this == MOUSECHANGE || this == SHOW;
+            return this == RESTOREFOCUS || this == MOUSECHANGE || this == SHOW || this == FOCUSNAVIGATE;
         }
     }
 
@@ -124,7 +126,7 @@ public class FocusUtils {
 
     public static native Element getNextFocusElement(Element formController, boolean forward) /*-{
         var elements = Array.prototype.filter.call(
-            formController.querySelectorAll('.nav-item,.tableContainer,button,input,.panelRendererValue'), function (item) {
+            formController.querySelectorAll('.nav-item,.tableContainer,button,input,.panel-renderer-value'), function (item) {
                 //if element or one of its ancestors has display:none, offsetParent is null, so it's a sort of visibility check
                 return @FocusUtils::isTabFocusable(*)(item) && item.offsetParent !== null
             });
@@ -228,7 +230,7 @@ public class FocusUtils {
                 inputType.isSelectAll()) {
             InputElement inputElement = (InputElement) element;
             if(event != null) { // we don't want mouse up because it will drop the selection
-                assert reason == Reason.MOUSECHANGE;
+                assert reason == Reason.MOUSECHANGE || reason == Reason.NOTFOCUSABLE;
                 MainFrame.preventClickAfterDown(inputElement, event);
             }
             inputElement.select();

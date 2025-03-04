@@ -66,6 +66,7 @@ import java.util.function.Function;
 import static lsfusion.base.BaseUtils.trimToNull;
 import static lsfusion.base.DateConverter.*;
 import static lsfusion.base.TimeConverter.sqlTimeToLocalTime;
+import static lsfusion.server.base.controller.thread.ThreadLocalContext.localize;
 
 public class CustomRestoreAction extends InternalAction {
     private final ClassPropertyInterface backupInterface;
@@ -89,7 +90,7 @@ public class CustomRestoreAction extends InternalAction {
                 dbName = context.getDbManager().customRestoreDB(fileBackup, tables.keySet(), isMultithread);
                 importColumns(context, dbName, tables);
             } else {
-                context.messageError("Backup File not found or no selected tables", "Error");
+                context.messageError(localize("{backup.file.not.found.or.no.selected.tables}"));
             }
         } catch (Exception e) {
             throw Throwables.propagate(e);
@@ -208,10 +209,11 @@ public class CustomRestoreAction extends InternalAction {
                             if (valueClass instanceof AbstractCustomClass) {
                                 valueClass = table.lpProperties.get(0).getInterfaceClasses(ClassType.signaturePolicy)[k];
                             }
-                            DataObject keyObject = context.getSession().getDataObject(valueClass, keysEntry.get(k));
+                            Object objectValue = convertValue(keysEntry.get(k), valueClass);
+                            DataObject keyObject = context.getSession().getDataObject(valueClass, objectValue);
                             if (keyObject.objectClass instanceof UnknownClass && valueClass instanceof ConcreteCustomClass && table.restoreObjects) {
                                 keyObject = context.getSession().addObject((ConcreteCustomClass) valueClass, keyObject);
-                                keyObject.object = keysEntry.get(k);
+                                keyObject.object = objectValue;
                             }
                             keysMap = keysMap.addExcl(new KeyField("key" + k, valueClass instanceof CustomClass ? ObjectType.instance : (Type) valueClass), keyObject);
                         }
@@ -286,6 +288,16 @@ public class CustomRestoreAction extends InternalAction {
         } catch (Exception e) {
             throw Throwables.propagate(e);
         }
+    }
+
+    private Object convertValue(Object value, ValueClass valueClass) {
+        if (valueClass instanceof DateClass && value instanceof Date)
+            return sqlDateToLocalDate((Date) value);
+        else if (valueClass instanceof TimeClass && value instanceof Time)
+            return sqlTimeToLocalTime((Time) value);
+        else if (valueClass instanceof DateTimeClass && value instanceof Timestamp)
+            return sqlTimestampToLocalDateTime((Timestamp) value);
+        return value;
     }
 
     private LocalDate getWriteDate(Object value) {

@@ -70,6 +70,8 @@ public class Settings implements Cloneable {
     private Boolean changeActionOnSingleClick = true;
 
     private int freeConnections = 12;
+    private int freeAPISessions = 12;
+    private boolean reinitAPISession = false;
 
     private boolean commonUnique = true; // потому как в таком случае все common connection'ы начинают блокировать друг друга, поэтому схема с private pool'ом правильней
 
@@ -489,6 +491,22 @@ public class Settings implements Cloneable {
 
     public void setFreeConnections(int freeConnections) {
         this.freeConnections = freeConnections;
+    }
+
+    public int getFreeAPISessions() {
+        return freeAPISessions;
+    }
+
+    public void setFreeAPISessions(int freeAPISessions) {
+        this.freeAPISessions = freeAPISessions;
+    }
+
+    public boolean isReinitAPISession() {
+        return reinitAPISession;
+    }
+
+    public void setReinitAPISession(boolean reinitAPISession) {
+        this.reinitAPISession = reinitAPISession;
     }
 
     public boolean isCommonUnique() {
@@ -941,6 +959,16 @@ public class Settings implements Cloneable {
 
     public void setAutoAnalyzeTempStats(boolean autoAnalyzeTempStats) {
         this.autoAnalyzeTempStats = autoAnalyzeTempStats;
+    }
+
+    private boolean useISOTimeFormatsInIntegration = true;
+
+    public boolean isUseISOTimeFormatsInIntegration() {
+        return useISOTimeFormatsInIntegration;
+    }
+
+    public void setUseISOTimeFormatsInIntegration(boolean useISOTimeFormatsInIntegration) {
+        this.useISOTimeFormatsInIntegration = useISOTimeFormatsInIntegration;
     }
 
     public boolean isUseGreaterEquals() {
@@ -2557,7 +2585,7 @@ public class Settings implements Cloneable {
         this.enableInteractiveAssertLog = enableInteractiveAssertLog;
     }
 
-    private double cacheNextEventActionRatio = 0.001; // if the percent of changes is lower that this percent of events - cache them
+    private double cacheNextEventActionRatio = 0.05; // if the percent of changes is lower that this percent of events - cache them
 
     public double getCacheNextEventActionRatio() {
         return cacheNextEventActionRatio;
@@ -2954,14 +2982,23 @@ public class Settings implements Cloneable {
         this.tsVectorDictionaryLanguage = tsVectorDictionaryLanguage;
     }
     
-    private boolean trueSerializable = false;
+    private int trueSerializableAttempts = 0;
+    private boolean recalculateMaterializationsMixedSerializable = false; // when running not in transaction - first read in READ_COMMITED mismatched materialization, and then read + update in REPEATABLE_READ only mismatched
 
-    public boolean isTrueSerializable() {
-        return trueSerializable;
+    public int getTrueSerializableAttempts() {
+        return trueSerializableAttempts;
     }
 
-    public void setTrueSerializable(boolean trueSerializable) {
-        this.trueSerializable = trueSerializable;
+    public void setTrueSerializableAttempts(int trueSerializableAttempts) {
+        this.trueSerializableAttempts = trueSerializableAttempts;
+    }
+
+    public boolean isRecalculateMaterializationsMixedSerializable() {
+        return recalculateMaterializationsMixedSerializable;
+    }
+
+    public void setRecalculateMaterializationsMixedSerializable(boolean recalculateMaterializationsMixedSerializable) {
+        this.recalculateMaterializationsMixedSerializable = recalculateMaterializationsMixedSerializable;
     }
 
     public int minInterfaceStatForValueUnique = 100;
@@ -3297,6 +3334,16 @@ public class Settings implements Cloneable {
         this.contentWordWrap = contentWordWrap;
     }
 
+    private boolean highlightDuplicateValue = false;
+
+    public boolean isHighlightDuplicateValue() {
+        return highlightDuplicateValue;
+    }
+
+    public void setHighlightDuplicateValue(boolean highlightDuplicateValue) {
+        this.highlightDuplicateValue = highlightDuplicateValue;
+    }
+
     private int maxColumnsInPlainImportExport = 256;
 
     public int getMaxColumnsInPlainImportExport() {
@@ -3379,5 +3426,71 @@ public class Settings implements Cloneable {
     }
     public void setCreateSessionObjects(boolean createSessionObjects) {
         this.createSessionObjects = createSessionObjects;
+    }
+
+    //backward compatibility for camelCases css rules refactoring
+    public double cssBackwardCompatibilityLevel = -1;
+
+    public double getCssBackwardCompatibilityLevel() {
+        return cssBackwardCompatibilityLevel;
+    }
+
+    public void setCssBackwardCompatibilityLevel(double cssBackwardCompatibilityLevel) {
+        this.cssBackwardCompatibilityLevel = cssBackwardCompatibilityLevel;
+    }
+
+    //set ignoreBodyStructureSize true and cut last two bytes 0d0a if received
+    //https://javaee.github.io/javamail/docs/api/com/sun/mail/imap/package-summary.html
+    public boolean ignoreBodyStructureSizeFix = false;
+
+    public boolean isIgnoreBodyStructureSizeFix() {
+        return ignoreBodyStructureSizeFix;
+    }
+
+    public void setIgnoreBodyStructureSizeFix(boolean ignoreBodyStructureSizeFix) {
+        this.ignoreBodyStructureSizeFix = ignoreBodyStructureSizeFix;
+    }
+
+    public boolean generateReportsOnWebServer = false;
+
+    public boolean isGenerateReportsOnWebServer() {
+        return generateReportsOnWebServer;
+    }
+
+    public void setGenerateReportsOnWebServer(boolean generateReportsOnWebServer) {
+        this.generateReportsOnWebServer = generateReportsOnWebServer;
+    }
+
+    public boolean exportDBFNumericMandatoryZeroes = false;
+
+    public boolean isExportDBFNumericMandatoryZeroes() {
+        return exportDBFNumericMandatoryZeroes;
+    }
+
+    public void setExportDBFNumericMandatoryZeroes(boolean exportDBFNumericMandatoryZeroes) {
+        this.exportDBFNumericMandatoryZeroes = exportDBFNumericMandatoryZeroes;
+    }
+
+    @Deprecated
+    //todo: backward compatibility, will be removed in v7
+    public boolean externalTCPWaitForByteMinusOne = false;
+
+    public boolean isExternalTCPWaitForByteMinusOne() {
+        return externalTCPWaitForByteMinusOne;
+    }
+
+    public void setExternalTCPWaitForByteMinusOne(boolean externalTCPWaitForByteMinusOne) {
+        this.externalTCPWaitForByteMinusOne = externalTCPWaitForByteMinusOne;
+    }
+
+    //used only in desktop-client
+    public boolean useDefaultPrinterInPrintIfNotSpecified = false;
+
+    public boolean isuseDefaultPrinterInPrintIfNotSpecified() {
+        return useDefaultPrinterInPrintIfNotSpecified;
+    }
+
+    public void setuseDefaultPrinterInPrintIfNotSpecified(boolean useDefaultPrinterInPrintIfNotSpecified) {
+        this.useDefaultPrinterInPrintIfNotSpecified = useDefaultPrinterInPrintIfNotSpecified;
     }
 }
