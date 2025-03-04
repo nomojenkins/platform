@@ -2,6 +2,7 @@ package lsfusion.gwt.client.form.property.cell.classes.controller;
 
 import com.google.gwt.dom.client.Element;
 import com.google.gwt.user.client.Event;
+import lsfusion.gwt.client.base.GwtClientUtils;
 import lsfusion.gwt.client.base.view.EventHandler;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
 import lsfusion.gwt.client.form.property.PValue;
@@ -37,7 +38,7 @@ public class RichTextCellEditor extends ARequestValueCellEditor implements Reque
 
         start(parent, value, selectAll && !property.notSelectAll);
 
-        parent.addClassName("property-hide-toolbar");
+        GwtClientUtils.addClassName(parent, "property-hide-toolbar");
     }
 
     protected native void start(Element element, String value, boolean selectAll)/*-{
@@ -75,7 +76,10 @@ public class RichTextCellEditor extends ARequestValueCellEditor implements Reque
 
     protected native String getEditorValue(Element element)/*-{
         var quill = element.quill;
-        return quill != null ? quill.root.innerHTML : '';
+
+        //quilljs Documentation says:
+        // "Note even when Quill is empty, there is still a blank line represented by '\n', so getLength() will return 1."
+        return quill != null && quill.getLength() > 1 ? quill.root.innerHTML : null;
     }-*/;
 
     protected native void enableEditing(Element element, boolean enableEditing)/*-{
@@ -84,7 +88,7 @@ public class RichTextCellEditor extends ARequestValueCellEditor implements Reque
 
     @Override
     public void stop(Element parent, boolean cancel, boolean blurred) {
-        parent.removeClassName("property-hide-toolbar");
+        GwtClientUtils.removeClassName(parent, "property-hide-toolbar");
 
         enableEditing(parent, false);
 

@@ -13,6 +13,7 @@ import lsfusion.base.col.interfaces.immutable.ImOrderMap;
 import lsfusion.base.col.interfaces.mutable.*;
 import lsfusion.base.col.interfaces.mutable.mapvalue.ImFilterValueMap;
 import lsfusion.base.col.interfaces.mutable.mapvalue.ImValueMap;
+import lsfusion.base.file.FileData;
 import lsfusion.base.file.RawFileData;
 import lsfusion.interop.action.*;
 import lsfusion.interop.form.FormClientData;
@@ -32,6 +33,7 @@ import lsfusion.interop.form.property.PropertyGroupType;
 import lsfusion.interop.form.remote.RemoteFormInterface;
 import lsfusion.server.base.caches.IdentityLazy;
 import lsfusion.server.base.controller.context.AbstractContext;
+import lsfusion.server.base.controller.context.Context;
 import lsfusion.server.base.controller.remote.RemoteRequestObject;
 import lsfusion.server.base.controller.thread.SyncType;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
@@ -52,11 +54,14 @@ import lsfusion.server.logics.form.interactive.changed.FormChanges;
 import lsfusion.server.logics.form.interactive.controller.context.RemoteFormContext;
 import lsfusion.server.logics.form.interactive.controller.remote.serialization.FormInstanceContext;
 import lsfusion.server.logics.form.interactive.controller.remote.serialization.ServerSerializationPool;
+import lsfusion.server.logics.form.interactive.design.ComponentView;
 import lsfusion.server.logics.form.interactive.design.ContainerView;
 import lsfusion.server.logics.form.interactive.design.FormView;
+import lsfusion.server.logics.form.interactive.event.UserEventObject;
 import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.interactive.instance.InteractiveFormReportManager;
 import lsfusion.server.logics.form.interactive.instance.filter.FilterInstance;
+import lsfusion.server.logics.form.interactive.instance.filter.PropertyFilterInstance;
 import lsfusion.server.logics.form.interactive.instance.filter.RegularFilterGroupInstance;
 import lsfusion.server.logics.form.interactive.instance.object.GroupColumn;
 import lsfusion.server.logics.form.interactive.instance.object.GroupMode;
@@ -66,8 +71,9 @@ import lsfusion.server.logics.form.interactive.instance.property.PropertyDrawIns
 import lsfusion.server.logics.form.interactive.instance.property.PropertyObjectInstance;
 import lsfusion.server.logics.form.interactive.listener.RemoteFormListener;
 import lsfusion.server.logics.form.interactive.property.Async;
+import lsfusion.server.logics.form.open.stat.PrintAction;
 import lsfusion.server.logics.form.stat.FormDataManager;
-import lsfusion.server.logics.form.stat.SelectTop;
+import lsfusion.server.logics.form.stat.FormSelectTop;
 import lsfusion.server.logics.form.stat.struct.FormIntegrationType;
 import lsfusion.server.logics.form.stat.struct.export.StaticExportData;
 import lsfusion.server.logics.form.stat.struct.export.plain.csv.ExportCSVAction;
@@ -100,10 +106,14 @@ public class RemoteForm<F extends FormInstance> extends RemoteRequestObject impl
 
     private final WeakReference<RemoteFormListener> weakRemoteFormListener;
 
+    @Override
+    protected Context createContext() {
+        return new RemoteFormContext<>(this);
+    }
+
     public RemoteForm(F form, int port, RemoteFormListener remoteFormListener, ExecutionStack upStack) throws RemoteException {
         super(port, upStack, form.entity.getSID(), form.isSync() ? SyncType.SYNC : SyncType.NOSYNC);
 
-        setContext(new RemoteFormContext<>(this));
         this.form = form;
         this.richDesign = form.entity.getRichDesign();
 
@@ -125,7 +135,7 @@ public class RemoteForm<F extends FormInstance> extends RemoteRequestObject impl
         return weakRemoteFormListener.get();
     }
 
-    public Object getGroupReportData(long requestIndex, long lastReceivedRequestIndex, final Integer groupId, final FormPrintType printType, final FormUserPreferences userPreferences) throws RemoteException {
+    public Object getGroupReportData(long requestIndex, long lastReceivedRequestIndex, final Integer groupId, final FormUserPreferences userPreferences) throws RemoteException {
         return processRMIRequest(requestIndex, lastReceivedRequestIndex, stack -> {
 
             if (logger.isDebugEnabled()) {
@@ -133,16 +143,21 @@ public class RemoteForm<F extends FormInstance> extends RemoteRequestObject impl
             }
 
             InteractiveFormReportManager formReportManager = new InteractiveFormReportManager(form, groupId, userPreferences);
+            FormPrintType printType = FormPrintType.XLSX;
             ReportGenerationData reportGenerationData = formReportManager.getReportData(printType);
 
             int minSizeForExportToCSV = Settings.get().getMinSizeForReportExportToCSV();
             if(minSizeForExportToCSV >= 0 && reportGenerationData.reportSourceData.length > minSizeForExportToCSV) {
                 FormDataManager.ExportResult exportData = formReportManager.getExportData();
+                FormIntegrationType type = FormIntegrationType.CSV;
                 RawFileData file = new ExportCSVAction(null, formReportManager.getFormEntity(), ListFact.EMPTY(), ListFact.EMPTY(), SetFact.EMPTYORDER(), SetFact.EMPTY(),
-                        FormIntegrationType.CSV, null, SelectTop.NULL, null, false, ";", false, true).exportReport(new StaticExportData(exportData.keys, exportData.properties), exportData.hierarchy);
-                return new RawFileData(ArrayUtils.addAll(new byte[]{(byte) 0xef, (byte) 0xbb, (byte) 0xbf}, file.getBytes())); //add bom bytes
+                        type, null, FormSelectTop.NULL(), null, false, ";", false, true).exportReport(new StaticExportData(exportData.keys, exportData.properties), exportData.hierarchy);
+                return new FileData(new RawFileData(ArrayUtils.addAll(new byte[]{(byte) 0xef, (byte) 0xbb, (byte) 0xbf}, file.getBytes())), type.getExtension()); //add bom bytes
 
             } else {
+                if(!Settings.get().isGenerateReportsOnWebServer() && !form.isNative())
+                    return new FileData(PrintAction.exportToFileByteArray(reportGenerationData, printType, null, null), printType.getExtension());
+
                 return reportGenerationData;
             }
         });
@@ -485,8 +500,8 @@ public class RemoteForm<F extends FormInstance> extends RemoteRequestObject impl
 
                 PropertyObjectInstance<?> propertyObject = propertyDraw.getOrderProperty().getRemappedPropertyObject(keys, false);
                 propertyDraw.toDraw.changeOrder(propertyObject, propertyDraw, order);
-                
-                form.fireOrderChanged(propertyDraw.toDraw, stack, true);
+
+                form.fireOnUserActivity(stack, propertyDraw.toDraw, UserEventObject.Type.ORDER);
             }
         });
     }
@@ -517,7 +532,7 @@ public class RemoteForm<F extends FormInstance> extends RemoteRequestObject impl
                 }
             }
 
-            form.fireOrderChanged(groupObject, stack, true);
+            form.fireOnUserActivity(stack, groupObject, UserEventObject.Type.ORDER);
         });
     }
 
@@ -631,14 +646,18 @@ public class RemoteForm<F extends FormInstance> extends RemoteRequestObject impl
                     FilterInstance filter = FilterInstance.deserialize(new DataInputStream(new ByteArrayInputStream(state)), form);
 
                     goi.addUserFilter(filter);
-                    
+
+                    if(filter instanceof PropertyFilterInstance) {
+                        form.fireFilterPropertyChanged(((PropertyFilterInstance<?>) filter).propertyDraw.getSID(), stack);
+                    }
+
                     if (logger.isDebugEnabled()) {
                         logger.debug(String.format("set user filter: [CLASS: %1$s]", filter.getClass()));
                         logger.debug(String.format("apply object: %s", goi));
                     }
                 }
 
-                form.fireFilterChanged(goi, stack, true);
+                form.fireOnUserActivity(stack, goi, UserEventObject.Type.FILTER);
             }
         });
     }
@@ -646,7 +665,7 @@ public class RemoteForm<F extends FormInstance> extends RemoteRequestObject impl
     public ServerResponse setRegularFilter(long requestIndex, long lastReceivedRequestIndex, final int groupID, final int filterID) throws RemoteException {
         return processPausableRMIRequest(requestIndex, lastReceivedRequestIndex, stack -> {
             RegularFilterGroupInstance filterGroup = form.getRegularFilterGroup(groupID);
-            form.setRegularFilter(filterGroup, filterID);
+            form.setRegularFilter(filterGroup, filterID, getStack());
             if (logger.isDebugEnabled()) {
                 logger.debug(String.format("set regular filter: [GROUP: %1$s]", groupID));
                 logger.debug(String.format("filter ID: %s", filterID));
@@ -693,8 +712,10 @@ public class RemoteForm<F extends FormInstance> extends RemoteRequestObject impl
             if (logger.isDebugEnabled()) {
                 logger.debug("setTabVisible Action");
             }
-            
-            form.setTabVisible((ContainerView) richDesign.findById(tabPaneID), richDesign.findById(childId));
+
+            ComponentView tab = richDesign.findById(childId);
+            form.setTabVisible((ContainerView) richDesign.findById(tabPaneID), tab);
+            form.fireEvent(stack, new FormContainerEvent(tab.getSID(), false), null);
         });
     }
 

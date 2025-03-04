@@ -1,6 +1,7 @@
 package lsfusion.server.logics;
 
 import com.google.common.base.Throwables;
+import lsfusion.base.BaseUtils;
 import lsfusion.base.Pair;
 import lsfusion.base.col.ListFact;
 import lsfusion.base.col.MapFact;
@@ -41,6 +42,7 @@ import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.data.AnyValuePropertyHolder;
 import lsfusion.server.logics.classes.data.DataClass;
 import lsfusion.server.logics.classes.data.LogicalClass;
+import lsfusion.server.logics.classes.data.StringClass;
 import lsfusion.server.logics.classes.data.integral.DoubleClass;
 import lsfusion.server.logics.classes.data.integral.IntegerClass;
 import lsfusion.server.logics.classes.data.time.IntervalClass;
@@ -60,6 +62,7 @@ import lsfusion.server.logics.form.interactive.action.edit.FormSessionScope;
 import lsfusion.server.logics.form.interactive.action.input.RequestResult;
 import lsfusion.server.logics.form.interactive.action.userevent.*;
 import lsfusion.server.logics.form.interactive.property.GroupObjectProp;
+import lsfusion.server.logics.form.stat.SelectTop;
 import lsfusion.server.logics.form.struct.FormEntity;
 import lsfusion.server.logics.form.struct.group.Group;
 import lsfusion.server.logics.form.struct.object.GroupObjectEntity;
@@ -99,6 +102,7 @@ import lsfusion.server.physics.dev.id.name.AbstractPropertyNameParser;
 import lsfusion.server.physics.dev.id.name.DBNamingPolicy;
 import lsfusion.server.physics.dev.id.name.PropertyCanonicalNameParser;
 import lsfusion.server.physics.dev.id.name.PropertyCanonicalNameUtils;
+import lsfusion.server.physics.dev.integration.external.to.CallAction;
 import lsfusion.server.physics.exec.db.controller.manager.DBManager;
 import lsfusion.server.physics.exec.db.table.ImplementTable;
 import lsfusion.server.physics.exec.db.table.TableFactory;
@@ -158,11 +162,15 @@ public class BaseLogicsModule extends ScriptingLogicsModule {
 
     public LP static30;
 
+    public LP impossibleString;
+    public LP replace;
+
     public LP minus;
 
     private LA watch;
 
     public LA sleep;
+    public LA applyOnlyCheck;
     public LA applyOnlyWithoutRecalc;
     public LA applyAll;
 
@@ -185,6 +193,7 @@ public class BaseLogicsModule extends ScriptingLogicsModule {
     public LP<?> cookiesTo;
     public LP<?> query;
     public LP<?> params;
+    public LP<?> fileParams;
     public LP<?> actionPathInfo;
     public LP<?> contentType;
     public LP<?> body;
@@ -269,6 +278,8 @@ public class BaseLogicsModule extends ScriptingLogicsModule {
     public ConcreteCustomClass listViewType;
     public LP count;
     public LP isPivot;
+
+    public LP nameApplyFilter;
 
     public Group privateGroup;
 
@@ -532,6 +543,9 @@ public class BaseLogicsModule extends ScriptingLogicsModule {
 
         static30 = addCProp(IntegerClass.instance, 30);
 
+        impossibleString = addCProp(StringClass.instance, LocalizedString.create(BaseUtils.impossibleString));
+        replace = addReplaceProp();
+
         if(ActionDebugger.getInstance().isEnabled()) {
             watch = addAction(null, new LA<>(WatchAction.instance));
             makeActionPublic(watch, "watch");
@@ -569,6 +583,7 @@ public class BaseLogicsModule extends ScriptingLogicsModule {
         query = findProperty("query[]");
         actionPathInfo = findProperty("actionPathInfo[]");
         params = findProperty("params[TEXT, INTEGER]");
+        fileParams = findProperty("fileParams[TEXT, INTEGER]");
         contentType = findProperty("contentType[]");
         body = findProperty("body[]");
         appHost = findProperty("appHost[]");
@@ -614,6 +629,7 @@ public class BaseLogicsModule extends ScriptingLogicsModule {
         openRawLink = findAction("open[RAWLINK]");
 
         sleep = findAction("sleep[LONG]");
+        applyOnlyCheck = findAction("applyOnlyCheck[]");
         applyOnlyWithoutRecalc = findAction("applyOnlyWithoutRecalc[]");
         applyAll = findAction("applyAll[]");
 
@@ -650,6 +666,8 @@ public class BaseLogicsModule extends ScriptingLogicsModule {
         listViewType = (ConcreteCustomClass) findClass("ListViewType");
         count = findProperty("count[]");
         isPivot = findProperty("isPivot[ListViewType]");
+
+        nameApplyFilter = findProperty("nameApplyFilter[]");
 
         initNavigators();
     }
@@ -749,7 +767,7 @@ public class BaseLogicsModule extends ScriptingLogicsModule {
     }
 
     public LP addFinalJSONFormProp(LocalizedString caption, IntegrationForm integrationForm) {
-        LP jsonFormProp = addJSONFormProp(caption, integrationForm, false);
+        LP jsonFormProp = addJSONFormProp(caption, integrationForm, SelectTop.NULL(), false);
 //        jsonFormProp.property.finalizeInit();
         ((LazyProperty)jsonFormProp.property).finalizeLazyInit();
         return jsonFormProp;
@@ -823,7 +841,7 @@ public class BaseLogicsModule extends ScriptingLogicsModule {
     @IdentityStrongLazy
     public LP object(ValueClass valueClass) {
         LP lcp = addJProp(and1, 1, is(valueClass), 1);
-        ((JoinProperty)lcp.property).caption = LocalizedString.concatList(valueClass.getCaption(), " (", LocalizedString.create("{logics.id}"), ")");
+        lcp.property.caption = valueClass.getCaption();
         ((JoinProperty)lcp.property).objectPropertyClass = valueClass;
         return lcp;
     }
@@ -874,6 +892,13 @@ public class BaseLogicsModule extends ScriptingLogicsModule {
     @IdentityStrongLazy
     protected LP addRoundProp(boolean hasScale) {
         return addProperty(null, new LP<>(new FormulaJoinProperty(LocalizedString.create("round"), hasScale ? 2 : 1, RoundFormulaImpl.instance)));
+    }
+
+    private LP addReplaceProp() {
+        ImOrderSet<String> replaceParams = SetFact.toOrderExclSet(CallAction.getParamName("1"), CallAction.getParamName("2"), CallAction.getParamName("3"));
+        ImList<DataClass> replaceClasses = ListFact.toList(StringClass.instance, StringClass.instance, StringClass.instance);
+        return addSFProp(new CustomFormulaSyntax("replace(" + replaceParams.toString() + ")", replaceParams.getSet()),
+                StringClass.instance, null, replaceClasses, replaceParams, false, false);
     }
 
     @Override

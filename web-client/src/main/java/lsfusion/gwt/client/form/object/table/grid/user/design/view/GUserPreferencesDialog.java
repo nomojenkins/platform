@@ -23,9 +23,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static lsfusion.gwt.client.view.MainFrame.v5;
+
 public abstract class GUserPreferencesDialog extends DialogModalWindow {
     private static final ClientMessages messages = ClientMessages.Instance.get();
-    private static final String CSS_USER_PREFERENCES_DUAL_LIST = "userPreferencesDualList";
 
     private GGridController groupController;
     private GGridTable grid;
@@ -64,7 +65,7 @@ public abstract class GUserPreferencesDialog extends DialogModalWindow {
             }
         };
         columnsDualListBox.getDragController().addDragHandler(new DragHandlerAdapter());
-        columnsDualListBox.addStyleName(CSS_USER_PREFERENCES_DUAL_LIST);
+        GwtClientUtils.addClassName(columnsDualListBox, "user-preferences-dual-list", "userPreferencesDualList", v5);
 
         // column caption settings        
         columnCaptionBox = createTextBox();
@@ -131,11 +132,11 @@ public abstract class GUserPreferencesDialog extends DialogModalWindow {
             FlexPanel buttonsPanel = new FlexPanel();
 
             FormButton saveButton = new FormButton(messages.formGridPreferencesSave(), FormButton.ButtonStyle.PRIMARY, event -> savePressed());
-            saveButton.addStyleName("panelRendererValue");
+            GwtClientUtils.addClassName(saveButton, "panel-renderer-value", "panelRendererValue", v5);
             buttonsPanel.add(saveButton);
 
             FormButton resetButton = new FormButton(messages.formGridPreferencesReset(), FormButton.ButtonStyle.SECONDARY,  event -> resetPressed());
-            resetButton.addStyleName("panelRendererValue");
+            GwtClientUtils.addClassName(resetButton, "panel-renderer-value", "panelRendererValue", v5);
             buttonsPanel.add(resetButton);
 
             preferencesPanel.add(buttonsPanel);
@@ -149,11 +150,7 @@ public abstract class GUserPreferencesDialog extends DialogModalWindow {
             }
         });
 
-        ResizableComplexPanel mainContainer = new ResizableComplexPanel();
-        mainContainer.setStyleName("dialog-user-preferences-container");
-        mainContainer.add(focusPanel);
-
-        setBodyWidget(mainContainer);
+        setBodyWidget(focusPanel);
 
         refreshValues(mergeFont());
     }
@@ -335,7 +332,7 @@ public abstract class GUserPreferencesDialog extends DialogModalWindow {
                     currentPreferences.getUserPattern(property), getPropertyState(property)));
         }
         for (GPropertyDraw property : groupController.getGroupObjectProperties()) {
-            if (!orderedVisibleProperties.contains(property)) {
+            if (!orderedVisibleProperties.contains(property) && !property.remove) {
                 columnsDualListBox.addInvisible(new PropertyListItem(property, currentPreferences.getUserCaption(property),
                         currentPreferences.getUserPattern(property), getPropertyState(property)));
             }
@@ -392,7 +389,7 @@ public abstract class GUserPreferencesDialog extends DialogModalWindow {
 
     private Label createLabel(String text) {
         Label label = new Label(text + ":");
-        label.addStyleName("panel-property-label wrap-text-not-empty grid-vert-center");
+        GwtClientUtils.addClassNames(label, "panel-property-label", "wrap-text-not-empty", "grid-vert-center");
         return label;
     }
 
@@ -406,9 +403,9 @@ public abstract class GUserPreferencesDialog extends DialogModalWindow {
 
     private TextBox createTextBox(boolean integral) {
         TextBox textBox = new TextBox();
-        textBox.addStyleName("form-control prop-size-value");
+        GwtClientUtils.addClassNames(textBox, "form-control", "prop-size-value");
         if(integral) {
-            textBox.addStyleName("userPreferencesIntegralTextBox");
+            GwtClientUtils.addClassName(textBox, "user-preferences-integral-text-box", "userPreferencesIntegralTextBox", v5);
         }
         return textBox;
     }

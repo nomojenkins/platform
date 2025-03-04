@@ -10,11 +10,12 @@ import lsfusion.base.col.implementations.abs.AMap;
 import lsfusion.base.col.implementations.abs.ASet;
 import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.*;
+import lsfusion.base.col.interfaces.mutable.add.MAddCol;
+import lsfusion.base.col.interfaces.mutable.mapvalue.ImValueMap;
 import lsfusion.base.col.lru.LRUUtil;
 import lsfusion.base.col.lru.LRUWVSMap;
 import lsfusion.base.col.lru.LRUWWEVSMap;
 import lsfusion.base.file.RawFileData;
-import lsfusion.base.lambda.DProcessor;
 import lsfusion.base.lambda.E2Runnable;
 import lsfusion.interop.ProgressBar;
 import lsfusion.interop.connection.LocalePreferences;
@@ -31,12 +32,20 @@ import lsfusion.server.base.version.NFLazy;
 import lsfusion.server.data.OperationOwner;
 import lsfusion.server.data.QueryEnvironment;
 import lsfusion.server.data.expr.Expr;
+import lsfusion.server.data.expr.classes.IsClassExpr;
+import lsfusion.server.data.expr.classes.IsClassType;
+import lsfusion.server.data.expr.formula.FormulaUnionExpr;
+import lsfusion.server.data.expr.formula.MLinearOperandMap;
 import lsfusion.server.data.expr.formula.SQLSyntaxType;
+import lsfusion.server.data.expr.formula.StringConcatenateFormulaImpl;
+import lsfusion.server.data.expr.join.classes.ObjectClassField;
 import lsfusion.server.data.expr.key.KeyExpr;
 import lsfusion.server.data.expr.query.GroupExpr;
 import lsfusion.server.data.expr.query.GroupType;
 import lsfusion.server.data.expr.value.ValueExpr;
 import lsfusion.server.data.expr.where.CaseExprInterface;
+import lsfusion.server.data.query.Query;
+import lsfusion.server.data.query.build.Join;
 import lsfusion.server.data.query.build.QueryBuilder;
 import lsfusion.server.data.query.modify.ModifyQuery;
 import lsfusion.server.data.query.result.ReadBatchResultHandler;
@@ -45,6 +54,7 @@ import lsfusion.server.data.sql.SQLSession;
 import lsfusion.server.data.sql.adapter.DataAdapter;
 import lsfusion.server.data.sql.connection.ExConnection;
 import lsfusion.server.data.sql.exception.SQLHandledException;
+import lsfusion.server.data.sql.lambda.SQLCallable;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.data.stat.Stat;
 import lsfusion.server.data.table.*;
@@ -56,13 +66,13 @@ import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.data.where.Where;
 import lsfusion.server.language.MigrationScriptLexer;
 import lsfusion.server.language.MigrationScriptParser;
-import lsfusion.server.language.ScriptingLogicsModule;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.logics.BaseLogicsModule;
 import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.LogicsModule;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.controller.stack.ExecutionStack;
+import lsfusion.server.logics.action.controller.stack.NewThreadExecutionStack;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.action.session.change.PropertyChange;
 import lsfusion.server.logics.action.session.controller.init.SessionCreator;
@@ -83,11 +93,14 @@ import lsfusion.server.logics.form.interactive.instance.FormEnvironment;
 import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.interactive.property.AsyncMode;
 import lsfusion.server.logics.form.interactive.property.PropertyAsync;
+import lsfusion.server.logics.form.stat.LimitOffset;
 import lsfusion.server.logics.navigator.controller.env.*;
 import lsfusion.server.logics.property.AggregateProperty;
 import lsfusion.server.logics.property.CurrentEnvironmentProperty;
 import lsfusion.server.logics.property.Property;
+import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import lsfusion.server.logics.property.classes.infer.AlgType;
+import lsfusion.server.logics.property.data.AbstractDataProperty;
 import lsfusion.server.logics.property.data.DataProperty;
 import lsfusion.server.logics.property.data.StoredDataProperty;
 import lsfusion.server.logics.property.implement.PropertyInterfaceImplement;
@@ -183,6 +196,30 @@ public class DBManager extends LogicsManager implements InitializingBean {
         threadLocalSql = new ThreadLocal<>();
     }
 
+    public static boolean START_TIL = false;
+    public static boolean DEBUG_TIL = false;
+    public static boolean ID_TIL = true; // we don't need true serializable
+    public static boolean RECALC_CLASSES_TIL = false;
+    public static boolean RECALC_MAT_TIL = false;
+    public static boolean CHECK_CLASSES_TIL = true;
+    public static boolean CHECK_MAT_TIL = true;
+    public static boolean PACK_TIL = false;
+    public static boolean UPLOAD_TIL = false;
+
+    public static String checkClasses(final SQLSession sql, boolean runInTransaction, BaseClass baseClass) throws SQLException, SQLHandledException {
+        return checkClasses(sql, runInTransaction, DataSession.emptyEnv(OperationOwner.unknown), baseClass);
+    }
+
+    public static String checkClasses(final SQLSession sql, boolean runInTransaction, final QueryEnvironment env, BaseClass baseClass) throws SQLException, SQLHandledException {
+
+        final Result<String> incorrect = new Result<>();
+        runClassesExclusiveness(sql, runInTransaction, query -> incorrect.set(query.readSelect(sql, env)), baseClass);
+
+        if (!incorrect.result.isEmpty())
+            return "---- Checking Classes Exclusiveness -----" + '\n' + incorrect.result;
+        return "";
+    }
+
     public void addIndex(Property property) {
         addIndex(new LP(property));
     }
@@ -211,13 +248,29 @@ public class DBManager extends LogicsManager implements InitializingBean {
             ImplementTable.reflectionStatProps(() -> {
                 SQLSession sql = getThreadLocalSql();
 
-                adapter.ensure(false);
+                // splitting ensure function into two is necessary
+                // to make "DROP FUNCTION"-s execute after ensureDB (to have an active connection)
+                // but before ensureSqlFuncs.
+                adapter.ensureDBConnection(false);
+
+                if(!isFirstStart(sql) && getOldDBStructure(sql).version < 40) {
+                    startLog("Migrating cast.sql functions");
+                    sql.executeDDL("DROP FUNCTION IF EXISTS cast_json_to_static_file(jsonb)");
+                    sql.executeDDL("DROP FUNCTION IF EXISTS cast_json_text_to_static_file(json)");
+                }
+
+                adapter.ensureSqlFuncs();
 
                 if (!isFirstStart(sql)) {
                     updateStats(sql, true);
 
                     startLog("Setting user logging for properties");
                     setUserLoggableProperties(sql);
+
+                    if(getOldDBStructure(sql).version >= 41) {
+                        startLog("Setting user materialized for properties");
+                        setUserMaterializedProperties(sql);
+                    }
 
                     startLog("Setting user not null constraints for properties");
                     setNotNullProperties(sql);
@@ -273,47 +326,11 @@ public class DBManager extends LogicsManager implements InitializingBean {
         return namingPolicy;
     }
 
-    private void setUserLoggableProperties(SQLSession sql) throws SQLException, SQLHandledException {
-        Map<String, String> changes = businessLogics.getDbManager().getPropertyCNChanges(sql);
-        
-        Integer maxStatsProperty = null;
-        try {
-            maxStatsProperty = (Integer) reflectionLM.maxStatsProperty.read(sql, Property.defaultModifier, DataSession.emptyEnv(OperationOwner.unknown));
-        } catch (Exception ignored) {
+    private final ChangesController changesController = new ChangesController() {
+        public DBManager getDbManager() {
+            return DBManager.this;
         }
-
-        LP<PropertyInterface> isProperty = LM.is(reflectionLM.property);
-        ImRevMap<PropertyInterface, KeyExpr> keys = isProperty.getMapKeys();
-        KeyExpr key = keys.singleValue();
-        QueryBuilder<PropertyInterface, Object> query = new QueryBuilder<>(keys);
-        query.addProperty("CNProperty", reflectionLM.canonicalNameProperty.getExpr(key));
-        query.addProperty("overStatsProperty", reflectionLM.overStatsProperty.getExpr(key));
-        query.and(reflectionLM.userLoggableProperty.getExpr(key).getWhere());
-        ImOrderMap<ImMap<PropertyInterface, Object>, ImMap<Object, Object>> result = query.execute(sql, OperationOwner.unknown);
-
-        for (ImMap<Object, Object> values : result.valueIt()) {
-            String canonicalName = values.get("CNProperty").toString().trim();
-            if (changes.containsKey(canonicalName)) {
-                canonicalName = changes.get(canonicalName);
-            }
-            LP<?> lcp = null;
-            try {
-                lcp = businessLogics.findProperty(canonicalName);
-            } catch (Exception ignored) {
-            }
-            if(lcp != null) { // temporary for migration, так как могут на действиях стоять
-                Integer statsProperty = null;
-                if(lcp.property instanceof AggregateProperty) {
-                    statsProperty = (Integer) values.get("overStatsProperty");
-                    if (statsProperty == null)
-                        statsProperty = getPropertyInterfaceStat(lcp.property);
-                }
-                if (statsProperty == null || maxStatsProperty == null || statsProperty < maxStatsProperty) {
-                    lcp.makeUserLoggable(LM, systemEventsLM, getNamingPolicy());
-                }
-            }            
-        }
-    }
+    };
 
     public static Integer getPropertyInterfaceStat(Property property) {
         Integer statsProperty = null;
@@ -406,45 +423,13 @@ public class DBManager extends LogicsManager implements InitializingBean {
         }
     }
 
-    public void firstRecalculateStats(DataSession session) throws SQLException, SQLHandledException {
+    public void firstRecalculateStatsAndMaterializations(DataSession session) throws SQLException, SQLHandledException {
         if(reflectionLM.hasNotNullQuantity.read(session) == null) {
             recalculateStats(session);
-            session.applyException(businessLogics, ThreadLocalContext.getStack());
+            NewThreadExecutionStack stack = ThreadLocalContext.getStack();
+            recalculateMaterializations(stack, session.sql, businessLogics.serviceLM.singleTransaction.read(session) == null);
+            session.applyException(businessLogics, stack);
         }
-    }
-
-    private void recalculateClassStats(DataSession session, boolean log) throws SQLException, SQLHandledException {
-        for (ObjectValueClassSet tableClasses : LM.baseClass.getUpObjectClassFields().valueIt()) {
-            recalculateClassStat(LM, tableClasses, session, log);
-        }
-    }
-
-    private ImMap<Long, Integer> recalculateClassStat(BaseLogicsModule LM, ObjectValueClassSet tableClasses, DataSession session, boolean log) throws SQLException, SQLHandledException {
-        long start = System.currentTimeMillis();
-        if(log)
-            BaseUtils.serviceLogger.info(String.format("Recalculate Class Stats: %s", String.valueOf(tableClasses)));
-
-        QueryBuilder<Integer, Integer> classes = new QueryBuilder<>(SetFact.singleton(0));
-        KeyExpr countKeyExpr = new KeyExpr("count");
-        Expr countExpr = GroupExpr.create(MapFact.singleton(0, countKeyExpr.classExpr(LM.baseClass)),
-                ValueExpr.COUNT, countKeyExpr.isClass(tableClasses), GroupType.SUM, classes.getMapExprs());
-        classes.addProperty(0, countExpr);
-        classes.and(countExpr.getWhere());
-        ImOrderMap<ImMap<Integer, Object>, ImMap<Integer, Object>> classStats = classes.execute(session);
-
-        ImSet<ConcreteCustomClass> concreteChilds = tableClasses.getSetConcreteChildren();
-        MExclMap<Long, Integer> mResult = MapFact.mExclMap(concreteChilds.size());
-        for (int i = 0, size = concreteChilds.size(); i < size; i++) {
-            ConcreteCustomClass customClass = concreteChilds.get(i);
-            ImMap<Integer, Object> classStat = classStats.get(MapFact.singleton(0, customClass.ID));
-            int statValue = classStat == null ? 1 : (Integer) classStat.singleValue();
-            mResult.exclAdd(customClass.ID, statValue);
-            LM.statCustomObjectClass.change(statValue, session, customClass.getClassObject());
-        }
-        long time = System.currentTimeMillis() - start;
-        if(log)
-            BaseUtils.serviceLogger.info(String.format("Recalculate Class Stats: %s, %sms", String.valueOf(tableClasses), time));
-        return mResult.immutable();
     }
 
     private void updateClassStats(SQLSession session, boolean useSIDs) throws SQLException, SQLHandledException {
@@ -603,12 +588,38 @@ public class DBManager extends LogicsManager implements InitializingBean {
         for (ImplementTable dataTable : tables) {
             count++;
             long start = System.currentTimeMillis();
-            BaseUtils.serviceLogger.info(String.format("Recalculate Stats %s of %s: %s", count, tables.size(), String.valueOf(dataTable)));
+            BaseUtils.serviceLogger.info(String.format("Recalculate Stats %s of %s: %s", count, tables.size(), dataTable));
             dataTable.recalculateStat(reflectionLM, getDisableStatsTableColumnSet(), session);
             long time = System.currentTimeMillis() - start;
-            BaseUtils.serviceLogger.info(String.format("Recalculate Stats: %s, %sms", String.valueOf(dataTable), time));
+            BaseUtils.serviceLogger.info(String.format("Recalculate Stats: %s, %sms", dataTable, time));
         }
-        recalculateClassStats(session, true);
+
+        count = 0;
+        ImCol<ObjectValueClassSet> tableClassesCol = LM.baseClass.getUpObjectClassFields().values();
+        for (ObjectValueClassSet tableClasses : tableClassesCol) {
+            count++;
+            long start = System.currentTimeMillis();
+            BaseUtils.serviceLogger.info(String.format("Recalculate Class Stats %s of %s: %s", count, tableClassesCol.size(), tableClasses));
+
+            QueryBuilder<Integer, Integer> classes = new QueryBuilder<>(SetFact.singleton(0));
+            KeyExpr countKeyExpr = new KeyExpr("count");
+            Expr countExpr = GroupExpr.create(MapFact.singleton(0, countKeyExpr.classExpr(LM.baseClass)),
+                    ValueExpr.COUNT, countKeyExpr.isClass(tableClasses), GroupType.SUM, classes.getMapExprs());
+            classes.addProperty(0, countExpr);
+            classes.and(countExpr.getWhere());
+            ImOrderMap<ImMap<Integer, Object>, ImMap<Integer, Object>> classStats = classes.execute(session);
+
+            ImSet<ConcreteCustomClass> concreteChilds = tableClasses.getSetConcreteChildren();
+            MExclMap<Long, Integer> mResult = MapFact.mExclMap(concreteChilds.size());
+            for (int j = 0, size = concreteChilds.size(); j < size; j++) {
+                ConcreteCustomClass customClass = concreteChilds.get(j);
+                ImMap<Integer, Object> classStat = classStats.get(MapFact.singleton(0, customClass.ID));
+                int statValue = classStat == null ? 1 : (Integer) classStat.singleValue();
+                mResult.exclAdd(customClass.ID, statValue);
+                LM.statCustomObjectClass.change(statValue, session, customClass.getClassObject());
+            }
+            BaseUtils.serviceLogger.info(String.format("Recalculate Class Stats: %s, %sms", tableClasses, System.currentTimeMillis() - start));
+        }
     }
 
     public void overCalculateStats(DataSession session, Integer maxQuantityOverCalculate) throws SQLException, SQLHandledException {
@@ -626,95 +637,45 @@ public class DBManager extends LogicsManager implements InitializingBean {
         }
     }
 
-    public String checkClasses(SQLSession session) throws SQLException, SQLHandledException {
-        String message = DataSession.checkClasses(session, LM.baseClass);
-        for(ImplementTable implementTable : LM.tableFactory.getImplementTables()) {
-            message += DataSession.checkTableClasses(implementTable, session, LM.baseClass, false); // так как снизу есть проверка классов
-        }
-        ImOrderSet<Property> storedDataProperties;
-        try(DataSession dataSession = createRecalculateSession(session)) {
-            storedDataProperties = businessLogics.getStoredDataProperties(dataSession);
-        }
-        for (Property property : storedDataProperties)
-            message += DataSession.checkClasses(property, session, LM.baseClass);
-        return message;
+    public static void runClassesExclusiveness(SQLSession session, boolean runInTransaction, DataSession.RunExclusiveness run, BaseClass baseClass) throws SQLException, SQLHandledException {
+        run(session, runInTransaction, RECALC_CLASSES_TIL, sql -> runClassesExclusiveness(run, sql, baseClass));
     }
 
-    public void recalculateExclusiveness(final SQLSession session, boolean isolatedTransactions) throws SQLException, SQLHandledException {
-        run(session, isolatedTransactions, sql -> DataSession.runExclusiveness(query -> {
-            SingleKeyTableUsage<String> table = new SingleKeyTableUsage<>("recexcl", ObjectType.instance, SetFact.toOrderExclSet("sum", "agg"), key -> key.equals("sum") ? ValueExpr.COUNTCLASS : StringClass.getv(false, ExtInt.UNLIMITED));
+    public static void runClassesExclusiveness(DataSession.RunExclusiveness run, SQLSession sql, BaseClass baseClass) throws SQLException, SQLHandledException {
 
-            table.writeRows(sql, query, LM.baseClass, DataSession.emptyEnv(OperationOwner.unknown), SessionTable.nonead);
+        // тут можно было бы использовать нижнюю конструкцию, но с учетом того что не все базы поддерживают FULL JOIN, на UNION'ах и их LEFT JOIN'ах с проталкиванием, запросы получаются мегабайтные и СУБД не справляется
+//        KeyExpr key = new KeyExpr("key");
+//        String incorrect = new Query<String,String>(MapFact.singletonRev("key", key), key.classExpr(baseClass, IsClassType.SUMCONSISTENT).compare(ValueExpr.COUNT, Compare.GREATER)).readSelect(sql, env);
 
-            MExclMap<ConcreteCustomClass, MExclSet<String>> mRemoveClasses = MapFact.mExclMap();
-            for (Object distinct : table.readDistinct("agg", sql, OperationOwner.unknown)) { // разновидности agg читаем
-                String classes = (String) distinct;
-                ConcreteCustomClass keepClass = null;
-                for (String singleClass : classes.split(",")) {
-                    ConcreteCustomClass customClass = LM.baseClass.findConcreteClassID(Long.parseLong(singleClass));
-                    if (customClass != null) {
-                        if (keepClass == null)
-                            keepClass = customClass;
-                        else {
-                            ConcreteCustomClass removeClass;
-                            if (keepClass.isChild(customClass)) {
-                                removeClass = keepClass;
-                                keepClass = customClass;
-                            } else
-                                removeClass = customClass;
+        // пока не вытягивает определение, для каких конкретно классов образовалось пересечение, ни сервер приложение ни СУБД
+        final KeyExpr key = new KeyExpr("key");
+        final int threshold = 30;
+        final ImOrderSet<ObjectClassField> tables = baseClass.getUpObjectClassFields().keys().toOrderSet();
 
-                            MExclSet<String> mRemoveStrings = mRemoveClasses.get(removeClass);
-                            if (mRemoveStrings == null) {
-                                mRemoveStrings = SetFact.mExclSet();
-                                mRemoveClasses.exclAdd(removeClass, mRemoveStrings);
-                            }
-                            mRemoveStrings.exclAdd(classes);
-                        }
-                    }
-                }
-            }
-            ImMap<ConcreteCustomClass, ImSet<String>> removeClasses = MapFact.immutable(mRemoveClasses);
+        final MLinearOperandMap mSum = new MLinearOperandMap();
+        final MList<Expr> mAgg = ListFact.mList();
+        final MAddCol<SingleKeyTableUsage<String>> usedTables = ListFact.mAddCol();
+        for(ImSet<ObjectClassField> group : tables.getSet().group(keyField -> tables.indexOf(keyField) % threshold).values()) {
+            SingleKeyTableUsage<String> table = new SingleKeyTableUsage<>("runexls", ObjectType.instance, SetFact.toOrderExclSet("sum", "agg"), key1 -> key1.equals("sum") ? ValueExpr.COUNTCLASS : StringClass.getv(false, ExtInt.UNLIMITED));
+            Expr sumExpr = IsClassExpr.create(key, group, IsClassType.SUMCONSISTENT);
+            Expr aggExpr = IsClassExpr.create(key, group, IsClassType.AGGCONSISTENT);
+            table.writeRows(sql, new Query<>(MapFact.singletonRev("key", key), MapFact.toMap("sum", sumExpr, "agg", aggExpr), sumExpr.getWhere()), baseClass, DataSession.emptyEnv(OperationOwner.unknown), SessionTable.nonead);
 
-            for (int i = 0, size = removeClasses.size(); i < size; i++) {
-                KeyExpr key = new KeyExpr("key");
-                Expr aggExpr = table.join(key).getExpr("agg");
-                Where where = Where.FALSE();
-                for (String removeString : removeClasses.getValue(i))
-                    where = where.or(aggExpr.compare(new DataObject(removeString, StringClass.text), Compare.EQUALS));
-                removeClasses.getKey(i).dataProperty.dropInconsistentClasses(session, LM.baseClass, key, where, OperationOwner.unknown);
-            }
-        }, sql, LM.baseClass));
-    }
+            Join<String> tableJoin = table.join(key);
+            mSum.add(tableJoin.getExpr("sum"), 1);
+            mAgg.add(tableJoin.getExpr("agg"));
 
-    public String recalculateClasses(SQLSession session, boolean isolatedTransactions) throws SQLException, SQLHandledException {
-        recalculateExclusiveness(session, isolatedTransactions);
-
-        final List<String> messageList = new ArrayList<>();
-        final long maxRecalculateTime = Settings.get().getMaxRecalculateTime();
-        for (final ImplementTable implementTable : LM.tableFactory.getImplementTables()) {
-            run(session, isolatedTransactions, sql -> {
-                long start = System.currentTimeMillis();
-                DataSession.recalculateTableClasses(implementTable, sql, LM.baseClass);
-                long time = System.currentTimeMillis() - start;
-                String message = String.format("Recalculate Table Classes: %s, %sms", implementTable.toString(), time);
-                BaseUtils.serviceLogger.info(message);
-                if (time > maxRecalculateTime)
-                    messageList.add(message);
-            });
+            usedTables.add(table);
         }
 
-        try(DataSession dataSession = createRecalculateSession(session)) {
-            for (final Property property : businessLogics.getStoredDataProperties(dataSession))
-                run(session, isolatedTransactions, sql -> {
-                    long start = System.currentTimeMillis();
-                    property.recalculateClasses(sql, LM.baseClass);
-                    long time = System.currentTimeMillis() - start;
-                    String message = String.format("Recalculate Class: %s, %sms", property.getSID(), time);
-                    BaseUtils.serviceLogger.info(message);
-                    if (time > maxRecalculateTime) messageList.add(message);
-                });
-            return businessLogics.formatMessageList(messageList);
-        }
+        // FormulaUnionExpr.create(new StringAggConcatenateFormulaImpl(","), mAgg.immutableList()) , "value",
+        Expr sumExpr = mSum.getExpr();
+        Expr aggExpr = FormulaUnionExpr.create(new StringConcatenateFormulaImpl(","), mAgg.immutableList());
+        run.run(new Query<>(MapFact.singletonRev("key", key), sumExpr.compare(ValueExpr.COUNT, Compare.GREATER), MapFact.EMPTY(),
+                MapFact.toMap("sum", sumExpr, "agg", aggExpr)));
+
+        for(SingleKeyTableUsage<String> usedTable : usedTables.it())
+            usedTable.drop(sql, OperationOwner.unknown);
     }
 
     public String getDataBaseName() {
@@ -947,43 +908,78 @@ public class DBManager extends LogicsManager implements InitializingBean {
     public DataSession createSession(OperationOwner upOwner) throws SQLException {
         return createSession(getThreadLocalSql(), upOwner);
     }
-    
-    public DataSession createSession(SQLSession sql, OperationOwner upOwner) throws SQLException {
-        return createSession(sql,
-                new UserController() {
-                    public boolean changeCurrentUser(DataObject user, ExecutionStack stack) {
-                        throw new RuntimeException("not supported");
-                    }
 
-                    @Override
-                    public Long getCurrentUserRole() {
-                        return null;
-                    }
-                },
-                new FormController() {
-                    @Override
-                    public void changeCurrentForm(String form) {
-                        throw new RuntimeException("not supported");
-                    }
+    private void setUserLoggableProperties(SQLSession sql) throws SQLException, SQLHandledException {
+        Map<String, String> changes = businessLogics.getDbManager().getPropertyCNChanges(sql);
 
-                    @Override
-                    public String getCurrentForm() {
-                        return null;
+        Integer maxStatsProperty = null;
+        try {
+            maxStatsProperty = (Integer) reflectionLM.maxStatsProperty.read(sql, Property.defaultModifier, changesController, DataSession.emptyEnv(OperationOwner.unknown));
+        } catch (Exception ignored) {
+        }
+
+        LP<PropertyInterface> isProperty = LM.is(reflectionLM.property);
+        ImRevMap<PropertyInterface, KeyExpr> keys = isProperty.getMapKeys();
+        KeyExpr key = keys.singleValue();
+        QueryBuilder<PropertyInterface, Object> query = new QueryBuilder<>(keys);
+        query.addProperty("CNProperty", reflectionLM.canonicalNameProperty.getExpr(key));
+        query.addProperty("overStatsProperty", reflectionLM.overStatsProperty.getExpr(key));
+        query.and(reflectionLM.userLoggableProperty.getExpr(key).getWhere());
+        ImOrderMap<ImMap<PropertyInterface, Object>, ImMap<Object, Object>> result = query.execute(sql, OperationOwner.unknown);
+
+        for (ImMap<Object, Object> values : result.valueIt()) {
+            String canonicalName = values.get("CNProperty").toString().trim();
+            if (changes.containsKey(canonicalName)) {
+                canonicalName = changes.get(canonicalName);
+            }
+            LP<?> lcp = null;
+            try {
+                lcp = businessLogics.findProperty(canonicalName);
+            } catch (Exception ignored) {
+            }
+            if(lcp != null) { // temporary for migration, так как могут на действиях стоять
+                Integer statsProperty = null;
+                if(lcp.property instanceof AggregateProperty) {
+                    statsProperty = (Integer) values.get("overStatsProperty");
+                    if (statsProperty == null)
+                        statsProperty = getPropertyInterfaceStat(lcp.property);
+                }
+                if (statsProperty == null || maxStatsProperty == null || statsProperty < maxStatsProperty) {
+                    lcp.makeUserLoggable(LM, systemEventsLM, getNamingPolicy());
+                }
+            }
+        }
+    }
+
+    private void setUserMaterializedProperties(SQLSession sql) throws SQLException, SQLHandledException {
+        ImRevMap<Object, KeyExpr> keys = LM.is(reflectionLM.property).getMapKeys();
+        KeyExpr key = keys.singleValue();
+        QueryBuilder<Object, Object> query = new QueryBuilder<>(keys);
+        query.addProperty("CNProperty", reflectionLM.canonicalNameProperty.getExpr(key));
+        query.addProperty("materialized", reflectionLM.userMaterializedProperty.getExpr(key));
+        query.and(reflectionLM.userMaterializedProperty.getExpr(key).getWhere());
+
+        for (ImMap<Object, Object> values : query.execute(sql, OperationOwner.unknown).valueIt()) {
+            LP<?> prop = businessLogics.findProperty(values.get("CNProperty").toString().trim());
+            if (prop != null && !(prop.property instanceof StoredDataProperty)) {
+                Boolean materialized = (Boolean) values.get("materialized");
+                if (materialized) {
+                    if (!prop.property.isMarkedStored()) {
+                        LM.materialize(prop, namingPolicy);
                     }
-                },
-                () -> 0,
-                new ChangesController() {
-                    public DBManager getDbManager() {
-                        return DBManager.this;
+                } else {
+                    if (prop.property.isMarkedStored()) {
+                        LM.dematerialize(prop, namingPolicy);
                     }
-                }, Locale::getDefault, getIsServerRestartingController(), upOwner
-        );
+                }
+            }
+        }
     }
 
     public DataSession createSession(SQLSession sql, UserController userController, FormController formController,
                                      TimeoutController timeoutController, ChangesController changesController, LocaleController localeController, IsServerRestartingController isServerRestartingController, OperationOwner owner) throws SQLException {
         return new DataSession(sql, userController, formController, timeoutController, changesController, localeController, isServerRestartingController,
-                LM.baseClass, businessLogics.systemEventsLM.session, businessLogics.systemEventsLM.currentSession, getIDSql(), businessLogics.getSessionEvents(), owner, null);
+                LM.baseClass, businessLogics.systemEventsLM.session, businessLogics.systemEventsLM.currentSession, getIDSql(), businessLogics, owner, null);
     }
 
 
@@ -1079,10 +1075,85 @@ public class DBManager extends LogicsManager implements InitializingBean {
             return 31 * (31 * (31 * ( 31 * (31 * mapValues.hashCode() + envValues.hashCode())  + value.hashCode()) + mode.hashCode()) + neededCount) + hashMap(orders);
         }
     }
-    private static class ParamRef {
-        public Param param;
+    // basically there are 2 strategies:
+    // weak "lazy", like in getAsyncValues
+    // strong "lazy" - with the events in the database
+    // the first is good for really rarely changed props, the second has more overhead
+    private final WeakFlushedCache<ImMap<?, ? extends ObjectValue>, ObjectValue> weakLazyValueCache = new WeakFlushedCache<>(LRUUtil.G1);
+    private final StrongFlushedCache<ImMap<?, ? extends ObjectValue>, ObjectValue> strongLazyValueCache = new StrongFlushedCache<>(LRUUtil.G1);
+    private final WeakFlushedCache<Param, PropertyAsync[]> asyncValuesCache1 = new WeakFlushedCache<>(LRUUtil.G1);
 
-        public ParamRef(Param param) {
+    public DataSession createSession(SQLSession sql, OperationOwner upOwner) throws SQLException {
+        return createSession(sql,
+                new UserController() {
+                    public boolean changeCurrentUser(DataObject user, ExecutionStack stack) {
+                        throw new RuntimeException("not supported");
+                    }
+
+                    @Override
+                    public Long getCurrentUserRole() {
+                        return null;
+                    }
+                },
+                new FormController() {
+                    @Override
+                    public void changeCurrentForm(String form) {
+                        throw new RuntimeException("not supported");
+                    }
+
+                    @Override
+                    public String getCurrentForm() {
+                        return null;
+                    }
+                },
+                () -> 0, changesController, Locale::getDefault, getIsServerRestartingController(), upOwner
+        );
+    }
+    private final WeakFlushedCache<Param, PropertyAsync[]> asyncValuesCache2 = new WeakFlushedCache<>(LRUUtil.G2);
+
+    public <T extends PropertyInterface> ObjectValue readLazyValue(Property<T> property, ImMap<T, ? extends ObjectValue> keys) throws SQLException, SQLHandledException {
+        return (property.isLazyStrong() ? strongLazyValueCache : weakLazyValueCache).proceed(property, keys,
+                () -> property.readClasses(getThreadLocalSql(), keys, LM.baseClass, Property.defaultModifier, DataSession.emptyEnv(OperationOwner.unknown)));
+    }
+
+//    public <T extends PropertyInterface> void updateLazyValue(Property<T> property, ImMap<T, ? extends ObjectValue> values) {
+//
+//    }
+
+    public <P extends PropertyInterface> PropertyAsync<P>[] getAsyncValues(InputValueList<P> list, QueryEnvironment env, ExecutionStack stack, FormEnvironment formEnv, String value, int neededCount, AsyncMode mode) throws SQLException, SQLHandledException {
+        if(Settings.get().isIsClustered()) // we don't want to use caches since they can be inconsistent
+            return readAsyncValues(list, env, stack, formEnv, value, neededCount, mode);
+
+        return (value.length() >= Settings.get().getAsyncValuesLongCacheThreshold() || list.hasValues() ? asyncValuesCache1 : asyncValuesCache2).
+                proceed(list.getCacheKey(), list.getCacheParam(value, neededCount, mode, env),
+                () -> readAsyncValues(list, env, stack, formEnv, value, neededCount, mode));
+    }
+
+    public void flushChanges() {
+        ImSet<Property> flushedChanges;
+        synchronized (changesListLock) {
+            flushedChanges = mChanges.immutable();
+            mChanges = SetFact.mSet();
+        }
+        if(flushedChanges.isEmpty())
+            return;
+
+        asyncValuesCache1.flush(flushedChanges);
+        asyncValuesCache2.flush(flushedChanges);
+        weakLazyValueCache.flush(flushedChanges);
+    }
+
+    public void flushStrong(ImSet<Pair<Property, ImMap<PropertyInterface, ? extends ObjectValue>>> strongCaches) {
+        for (int i = 0, size = strongCaches.size(); i < size; i++) {
+            Pair<Property, ImMap<PropertyInterface, ? extends ObjectValue>> entry = strongCaches.get(i);
+            strongLazyValueCache.flush(entry.first, entry.second);
+        }
+    }
+
+    private static class ParamRef<K> {
+        public K param;
+
+        public ParamRef(K param) {
             this.param = param;
         }
 
@@ -1090,82 +1161,114 @@ public class DBManager extends LogicsManager implements InitializingBean {
             param = null;
         }
     }
-    private static class ValueRef<P extends PropertyInterface> {
-        // it's the only strong value to keep it from garbage collected
-        public final ParamRef ref;
-        public final PropertyAsync<P>[] values;
 
-        public ValueRef(ParamRef ref, PropertyAsync<P>[] values) {
+    private static class ValueRef<K, V> {
+        // it's the only strong value to keep it from garbage collected
+        public final ParamRef<K> ref;
+        public final V values;
+
+        public ValueRef(ParamRef<K> ref, V values) {
             this.ref = ref;
             this.values = values;
         }
     }
 
-    // need this to clean outdated caches
-    // could be done easier with timestamps (value and last changed), but this way cache will be cleaned faster
-    private final LRUWVSMap<ActionOrProperty<?>, ConcurrentIdentityWeakHashSet<ParamRef>> asyncValuesPropCache1 = new LRUWVSMap<>(LRUUtil.G1);
-    private final LRUWVSMap<ActionOrProperty<?>, ConcurrentIdentityWeakHashSet<ParamRef>> asyncValuesPropCache2 = new LRUWVSMap<>(LRUUtil.G2);
+    private static class StrongValueRef<V> {
+        public V values;
+        public boolean obsolete;
+        public boolean finished;
 
-    // we need weak ref, but regular equals (not identity)
-    private final LRUWWEVSMap<ActionOrProperty<?>, Param, ValueRef> asyncValuesValueCache1 = new LRUWWEVSMap<>(LRUUtil.G1);
-    private final LRUWWEVSMap<ActionOrProperty<?>, Param, ValueRef> asyncValuesValueCache2 = new LRUWWEVSMap<>(LRUUtil.G2);
-
-    public <P extends PropertyInterface> PropertyAsync<P>[] getAsyncValues(InputValueList<P> list, QueryEnvironment env, ExecutionStack stack, FormEnvironment formEnv, String value, int neededCount, AsyncMode mode) throws SQLException, SQLHandledException {
-        if(Settings.get().isIsClustered()) // we don't want to use caches since they can be inconsistent
-            return readAsyncValues(list, env, stack, formEnv, value, neededCount, mode);
-
-        LRUWVSMap<ActionOrProperty<?>, ConcurrentIdentityWeakHashSet<ParamRef>> asyncValuesPropCache;
-        LRUWWEVSMap<ActionOrProperty<?>, Param, ValueRef> asyncValuesValueCache;
-        if(value.length() >= Settings.get().getAsyncValuesLongCacheThreshold() || list.hasValues()) {
-            asyncValuesPropCache = asyncValuesPropCache1;
-            asyncValuesValueCache = asyncValuesValueCache1;
-        } else {
-            asyncValuesPropCache = asyncValuesPropCache2;
-            asyncValuesValueCache = asyncValuesValueCache2;
+        public StrongValueRef() {
         }
-
-        ActionOrProperty<?> key = list.getCacheKey();
-        Param param = list.getCacheParam(value, neededCount, mode, env);
-
-        ValueRef<P> valueRef = asyncValuesValueCache.get(key, param);
-        if(valueRef != null && valueRef.ref.param != null)
-            return valueRef.values;
-
-        // has to be before reading to be sure that ref will be dropped when changes are made
-        ParamRef ref = new ParamRef(param);
-        ConcurrentIdentityWeakHashSet<ParamRef> paramRefs = asyncValuesPropCache.get(key);
-        if(paramRefs == null) {
-            paramRefs = new ConcurrentIdentityWeakHashSet<>();
-            asyncValuesPropCache.put(key, paramRefs);
-        }
-        paramRefs.add(ref);
-
-        PropertyAsync<P>[] values = readAsyncValues(list, env, stack, formEnv, value, neededCount, mode);
-        asyncValuesValueCache.put(key, param, new ValueRef<>(ref, values));
-
-        return values;
     }
 
     private <P extends PropertyInterface> PropertyAsync<P>[] readAsyncValues(InputValueList<P> list, QueryEnvironment env, ExecutionStack stack, FormEnvironment formEnv, String value, int neededCount, AsyncMode asyncMode) throws SQLException, SQLHandledException {
-        return FormInstance.getAsyncValues(list, getThreadLocalSql(), env, LM.baseClass, Property.defaultModifier, () -> new ExecutionContext<>(MapFact.EMPTY(), createSession(), stack, formEnv), value, neededCount, asyncMode);
+        return FormInstance.getAsyncValues(list, getThreadLocalSql(), env, LM.baseClass, Property.defaultModifier, () -> new FormInstance.ExecContext() {
+            private DataSession session;
+
+            public ExecutionContext<?> getContext() throws SQLException {
+                session = createSession();
+                return new ExecutionContext<>(MapFact.EMPTY(), createSession(), stack, formEnv);
+            }
+
+            public void close() throws SQLException {
+                session.close();
+            }
+        } , value, neededCount, asyncMode);
     }
 
-    public void flushChanges() {
-        ImSet<Property> flushedChanges;
-        synchronized (changesListLock) {
-            flushedChanges = mChanges.immutable();
-        }
-        if(flushedChanges.isEmpty())
-            return;
+    private interface FlushedCache<K,V> {
+        V proceed(ActionOrProperty property, K param, SQLCallable<V> function) throws SQLException, SQLHandledException;
+    }
 
-        DProcessor<ActionOrProperty<?>, ConcurrentIdentityWeakHashSet<ParamRef>> dropCaches = (property, refs) -> {
-            if (property != null && InputValueList.depends(property, flushedChanges)) {
-                for (ParamRef ref : refs)
-                    ref.drop(); // dropping ref will eventually lead to garbage collection of entries in all lru caches, plus there is a check that cache is dropped
+    // need this to clean outdated caches
+    // could be done easier with timestamps (value and last changed), but this way cache will be cleaned faster
+    private static class WeakFlushedCache<K, V> implements FlushedCache<K, V> {
+        private final LRUWVSMap<ActionOrProperty<?>, ConcurrentIdentityWeakHashSet<ParamRef<K>>> propCache;
+        private final LRUWWEVSMap<ActionOrProperty<?>, K, ValueRef<K, V>> valueCache;
+
+        public WeakFlushedCache(LRUUtil.Strategy expireStrategy) {
+            propCache = new LRUWVSMap<>(expireStrategy);
+            valueCache = new LRUWWEVSMap<>(expireStrategy);
+        }
+
+        public V proceed(ActionOrProperty property, K param, SQLCallable<V> function) throws SQLException, SQLHandledException {
+            ValueRef<K, V> valueRef = valueCache.get(property, param);
+            if(valueRef != null && valueRef.ref.param != null)
+                return valueRef.values;
+
+            // has to be before reading to be sure that ref will be dropped when changes are made
+            ParamRef<K> ref = new ParamRef<>(param);
+            ConcurrentIdentityWeakHashSet<ParamRef<K>> paramRefs = propCache.get(property);
+            if(paramRefs == null) {
+                paramRefs = new ConcurrentIdentityWeakHashSet<>();
+                propCache.put(property, paramRefs);
             }
-        };
-        asyncValuesPropCache1.proceedSafeLockLRUEKeyValues(dropCaches);
-        asyncValuesPropCache2.proceedSafeLockLRUEKeyValues(dropCaches);
+            paramRefs.add(ref);
+
+            V values = function.call();
+            valueCache.put(property, param, new ValueRef<>(ref, values));
+
+            return values;
+        }
+
+        public void flush(ImSet<Property> flushedChanges) {
+            propCache.proceedSafeLockLRUEKeyValues((property, refs) -> {
+                if (property != null && InputValueList.depends(property, flushedChanges)) {
+                    for (ParamRef ref : refs)
+                        ref.drop(); // dropping ref will eventually lead to garbage collection of entries in all lru caches, plus there is a check that cache is dropped
+                }
+            });
+        }
+    }
+
+    private static class StrongFlushedCache<K, V> implements FlushedCache<K, V> {
+        private final LRUWWEVSMap<ActionOrProperty<?>, K, StrongValueRef<V>> valueCache;
+
+        public StrongFlushedCache(LRUUtil.Strategy expireStrategy) {
+            valueCache = new LRUWWEVSMap<>(expireStrategy);
+        }
+
+        public V proceed(ActionOrProperty property, K param, SQLCallable<V> function) throws SQLException, SQLHandledException {
+            StrongValueRef<V> valueRef = valueCache.get(property, param);
+            if(valueRef != null && !valueRef.obsolete && valueRef.finished)
+                return valueRef.values;
+
+            valueRef = new StrongValueRef<>();
+            valueCache.put(property, param, valueRef);
+
+            valueRef.values = function.call();
+            valueRef.finished = true;
+
+            return valueRef.values;
+        }
+
+        public void flush(ActionOrProperty property, K keys) {
+            StrongValueRef<V> strongValueRef = valueCache.get(property, keys);
+            if (strongValueRef != null) {
+                strongValueRef.obsolete = true;
+            }
+        }
     }
 
     private final Object changesListLock = new Object();
@@ -1282,7 +1385,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
         }
     }
 
-    // old field -> old cn -> new cn -> ne field
+    // old field -> old cn -> new cn -> new field
     private Map<String, String> getOldToNewFieldsMap(ImRevMap<String, String> oldFieldToCN,
                                                        ImRevMap<String, String> newFieldToCN,
                                                        ImMap<String, String> propertyCNChanges) {
@@ -1322,7 +1425,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
         return newTableIndexesNames;
     }
 
-    private void checkUniqueDBName(NewDBStructure struct) {
+    private void checkUniquePropertyDBName(NewDBStructure struct) {
         Map<Pair<String, String>, DBStoredProperty> sids = new HashMap<>();
         for (DBStoredProperty property : struct.storedProperties) {
             Pair<String, String> key = new Pair<>(property.getDBName(), property.getTable().getName());
@@ -1333,22 +1436,10 @@ public class DBManager extends LogicsManager implements InitializingBean {
          }
     }
 
-    public void uploadToDB(SQLSession sql, boolean isolatedTransactions, final DataAdapter adapter) throws ClassNotFoundException, SQLException, InstantiationException, IllegalAccessException, SQLHandledException {
-        final OperationOwner owner = OperationOwner.unknown;
-        final SQLSession sqlFrom = new SQLSession(adapter, contextProvider);
-
-        sql.pushNoQueryLimit();
-        try {
-            ImSet<DBTable> tables = SetFact.addExcl(LM.tableFactory.getImplementTables(), IDTable.instance);
-            final int size = tables.size();
-            for (int i = 0; i < size; i++) {
-                final DBTable implementTable = tables.get(i);
-                final int fi = i;
-                run(sql, isolatedTransactions, sql1 -> uploadTableToDB(sql1, implementTable, fi + "/" + size, sqlFrom, owner));
-            }
-        } finally {
-            sql.popNoQueryLimit();
-        }
+    public static <P extends PropertyInterface> Where getIncorrectWhere(ImplementTable table, BaseClass baseClass, final ImRevMap<KeyField, KeyExpr> mapKeys) {
+        final Where inTable = baseClass.getInconsistentTable(table).join(mapKeys).getWhere();
+        Where correctClasses = table.getClasses().getWhere(mapKeys, true, IsClassType.INCONSISTENT);
+        return inTable.and(correctClasses.not());
     }
 
     @StackMessage("{logics.upload.db}")
@@ -1475,17 +1566,6 @@ public class DBManager extends LogicsManager implements InitializingBean {
         // инициализируем таблицы
         LM.tableFactory.fillDB(sql, LM.baseClass);
 
-        // потом надо сделать соответствующий механизм для Formula
-        ScriptingLogicsModule module = businessLogics.getModule("Country");
-        if(module != null) {
-            LP<?> lp = module.findProperty("isDayOff[Country,DATE]");
-
-            Properties props = new Properties();
-            props.put("dayoff.tablename", lp.property.mapTable.table.getName(sql.syntax));
-            props.put("dayoff.fieldname", lp.property.field.getName(sql.syntax));
-            adapter.ensureScript("jumpWorkdays.tsql", props);
-        }
-
         // "старое" состояние базы
         OldDBStructure oldDBStructure = getOldDBStructure(sql);
         boolean isFirstStart = oldDBStructure.isEmpty();
@@ -1514,9 +1594,9 @@ public class DBManager extends LogicsManager implements InitializingBean {
             DataOutputStream outDB = new DataOutputStream(outDBStruct);
 
             MigrationVersion newMigrationVersion = migrationManager.getCurrentMigrationVersion(oldDBStructure.migrationVersion);
-            NewDBStructure newDBStructure = new NewDBStructure(newMigrationVersion);
+            NewDBStructure newDBStructure = new NewDBStructure(newMigrationVersion, sql);
 
-            checkUniqueDBName(newDBStructure);
+            checkUniquePropertyDBName(newDBStructure);
             newDBStructure.write(outDB);
 
             // DROP / RENAME indices
@@ -1589,7 +1669,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
             LM.baseClass.fillIDs(sql, DataSession.emptyEnv(OperationOwner.unknown), this::generateID, LM.staticCaption, LM.staticImage,LM.staticName,
                     migrationManager.getClassSIDChangesAfter(oldDBStructure.migrationVersion),
                     migrationManager.getObjectSIDChangesAfter(oldDBStructure.migrationVersion),
-                    idChanges);
+                    idChanges, changesController);
 
             for (DBConcreteClass newClass : newDBStructure.concreteClasses) {
                 newClass.ID = newClass.customClass.ID;
@@ -1872,8 +1952,8 @@ public class DBManager extends LogicsManager implements InitializingBean {
         for (DBConcreteClass oldClass : oldDBStructure.concreteClasses) {
             for (DBConcreteClass newClass : newDBStructure.concreteClasses) {
                 if (oldClass.sID.equals(newClass.sID)) {
-                    if (!(oldClass.sDataPropID.equals(newClass.sDataPropID))) // надо пометить перенос, и удаление
-                        mToCopy.add(newClass.sDataPropID, MapFact.singleton(oldClass.sDataPropID, SetFact.singleton(oldClass.ID)));
+                    if (!(oldClass.dataPropCN.equals(newClass.dataPropCN))) // надо пометить перенос, и удаление
+                        mToCopy.add(newClass.dataPropCN, MapFact.singleton(oldClass.dataPropCN, SetFact.singleton(oldClass.ID)));
                     break;
                 }
             }
@@ -1886,18 +1966,18 @@ public class DBManager extends LogicsManager implements InitializingBean {
             List<IndexData<String>> additionalIndexes = new ArrayList<>();
             for (IndexData<String> indexData : indexList) {
                 if (indexData.options.type == IndexType.LIKE) {
-                    additionalIndexes.add(new IndexData<>(new ArrayList<>(indexData.fields), changeIndexOptions(indexData.options, IndexType.DEFAULT)));
+                    additionalIndexes.add(new IndexData<>(new ArrayList<>(indexData.fields), indexData.options.changeType(IndexType.DEFAULT)));
                 } else if (indexData.options.type == IndexType.MATCH) {
                     // We don't need to add indexes if the index was built for TSVECTOR type, but we don't have that information
                     // And it should be fine while we are dropping indexes with IF EXISTS
-                    additionalIndexes.add(new IndexData<>(new ArrayList<>(indexData.fields), changeIndexOptions(indexData.options, IndexType.DEFAULT)));
-                    additionalIndexes.add(new IndexData<>(new ArrayList<>(indexData.fields), changeIndexOptions(indexData.options, IndexType.LIKE)));
+                    additionalIndexes.add(new IndexData<>(new ArrayList<>(indexData.fields), indexData.options.changeType(IndexType.DEFAULT)));
+                    additionalIndexes.add(new IndexData<>(new ArrayList<>(indexData.fields), indexData.options.changeType(IndexType.LIKE)));
                 }
             }
             indexList.addAll(additionalIndexes);
         }
     }
-    
+
     public static void moveObjects(DBTable table, SQLSession sql, OldDBStructure oldDBStructure, ImMap<String, ImSet<Long>> copyFrom, DBStoredProperty classProp, BaseClass baseClass) throws Exception {
 //        ImplementTable.ignoreStatProps(() -> {
             QueryBuilder<KeyField, PropertyField> copyObjects = new QueryBuilder<>(table);
@@ -1985,7 +2065,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
     private void initSystemUser(DataSession session) throws SQLException, SQLHandledException {
         QueryBuilder<String, Object> query = new QueryBuilder<>(SetFact.singleton("key"));
         query.and(query.getMapExprs().singleValue().isClass(businessLogics.authenticationLM.systemUser));
-        ImOrderSet<ImMap<String, Object>> rows = query.execute(session, MapFact.EMPTYORDER(), 1).keyOrderSet();
+        ImOrderSet<ImMap<String, Object>> rows = query.execute(session, MapFact.EMPTYORDER(), new LimitOffset(1)).keyOrderSet();
         if (rows.size() == 0) {
             systemUser = (Long) session.addObject(businessLogics.authenticationLM.systemUser).object;
             apply(session);
@@ -2059,72 +2139,18 @@ public class DBManager extends LogicsManager implements InitializingBean {
         }
     }
 
-    public String checkMaterializations(SQLSession session) throws SQLException, SQLHandledException {
-        List<AggregateProperty> checkProperties;
-        try(DataSession dataSession = createRecalculateSession(session)) {
-            checkProperties = businessLogics.getRecalculateAggregateStoredProperties(dataSession, false);
-        }
-        String message = "";
-        for (int i = 0; i < checkProperties.size(); i++) {
-            Property property = checkProperties.get(i);
-            if(property != null)
-                message += ((AggregateProperty) property).checkMaterialization(session, LM.baseClass, new ProgressBar(localize("{logics.info.checking.materialized.property}"), i, checkProperties.size(), property.toString()));
-        }
-        return message;
+    public static <P extends PropertyInterface> Where getIncorrectWhere(ImplementTable table, PropertyField field, BaseClass baseClass, final ImRevMap<KeyField, KeyExpr> mapKeys, Result<Expr> resultExpr) {
+        Expr fieldExpr = baseClass.getInconsistentTable(table).join(mapKeys).getExpr(field);
+        resultExpr.set(fieldExpr);
+        final Where inTable = fieldExpr.getWhere();
+        Where correctClasses = table.getClassWhere(field).getWhere(MapFact.addExcl(mapKeys, field, fieldExpr), true, IsClassType.INCONSISTENT);
+        return inTable.and(correctClasses.not());
     }
 
-//    public String checkStats(SQLSession session) throws SQLException, SQLHandledException {
-//        ImOrderSet<Property> checkProperties = businessLogics.getPropertyList();
-//        
-//        double cnt = 0;
-//        List<Double> sum = new ArrayList<Double>();
-//        List<List<Double>> sumd = new ArrayList<List<Double>>();
-//        for(int i=0;i<4;i++) {
-//            sum.add(0.0);
-//            sumd.add(new ArrayList<Double>());
-//        }
-//        
-//        final Result<Integer> proceeded = new Result<Integer>(0);
-//        int total = checkProperties.size();
-//        ThreadLocalContext.pushActionMessage("Proceeded : " + proceeded.result + " of " + total);
-//        try {
-//            String message = "";
-//            for (Property property : checkProperties) {
-//                if(property instanceof AggregateProperty) {
-//                    List<Double> diff = ((AggregateProperty) property).checkStats(session, LM.baseClass);
-//                    if(diff != null) {
-//                        for(int i=0;i<4;i++) {
-//                            sum.set(i, sum.get(i) + diff.get(i));
-//                            sumd.get(i).add(diff.get(i));
-//                            cnt++;
-//                        }
-//                    }
-//                }
-//                
-//                if(cnt % 100 == 0) {
-//                    for(int i=0;i<4;i++) {
-//                        double avg = (double) sum.get(i) / (double) cnt;
-//                        double disp = 0;
-//                        for (double diff : sumd.get(i)) {
-//                            disp += ((double) diff - avg) * ((double) diff - avg);
-//                        }
-//                        System.out.println("I: " + i + "AVG : " + avg + " DISP : " + (disp) / cnt);
-//                    }
-//                }
-//
-//                proceeded.set(proceeded.result + 1);
-//                ThreadLocalContext.popActionMessage();
-//                ThreadLocalContext.pushActionMessage("Proceeded : " + proceeded.result + " of " + total);
-//            }
-//            return message;
-//        } finally {
-//            ThreadLocalContext.popActionMessage();
-//        }
-//    }
-//
-    public String checkMaterializationTableColumn(SQLSession session, String propertyCanonicalName) throws SQLException, SQLHandledException {
-        Property property = businessLogics.getAggregateStoredProperty(propertyCanonicalName);
-        return property != null ? ((AggregateProperty) property).checkMaterialization(session, LM.baseClass) : null;
+    public static String checkTableClasses(@ParamMessage ImplementTable table, SQLSession session, boolean runInTransaction, BaseClass baseClass, boolean includeProps) throws SQLException, SQLHandledException {
+        Result<String> rResult = new Result<>();
+        run(session, runInTransaction, CHECK_CLASSES_TIL, sql -> rResult.set(checkTableClasses(table, sql, null, baseClass, includeProps)));
+        return rResult.result;
     }
 
     public String recalculateMaterializations(ExecutionStack stack, SQLSession session, boolean isolatedTransaction) throws SQLException, SQLHandledException {
@@ -2159,29 +2185,40 @@ public class DBManager extends LogicsManager implements InitializingBean {
         void run(SQLSession sql) throws SQLException, SQLHandledException;
     }
 
-    public static void run(SQLSession session, boolean runInTransaction, RunService run) throws SQLException, SQLHandledException {
-        run(session, runInTransaction, run, 0);
+    public static String checkTableClasses(@ParamMessage ImplementTable table, SQLSession sql, QueryEnvironment env, BaseClass baseClass, boolean includeProps) throws SQLException, SQLHandledException {
+        Query<KeyField, Object> query = getIncorrectQuery(table, baseClass, includeProps, true);
+
+        String incorrect = env == null ? query.readSelect(sql) : query.readSelect(sql, env);
+        if(!incorrect.isEmpty())
+            return "---- Checking Classes for table : " + table + "-----" + '\n' + incorrect;
+        return "";
     }
 
-    private static void run(SQLSession session, boolean runInTransaction, RunService run, int attempts) throws SQLException, SQLHandledException {
-        if(runInTransaction) {
-            session.startTransaction(RECALC_TIL, OperationOwner.unknown);
-            try {
-                run.run(session);
-                session.commitTransaction();
-            } catch (Throwable t) {
-                session.rollbackTransaction();
-                if(t instanceof SQLHandledException && ((SQLHandledException)t).repeatApply(session, OperationOwner.unknown, attempts)) { // update conflict или deadlock или timeout - пробуем еще раз
-                    //serviceLogger.error("Run error: ", t);
-                    run(session, true, run, attempts + 1);
-                    return;
-                }
-
-                throw ExceptionUtils.propagate(t, SQLException.class, SQLHandledException.class);
+    private static Query<KeyField, Object> getIncorrectQuery(ImplementTable table, BaseClass baseClass, boolean includeProps, boolean check) {
+        ImRevMap<KeyField, KeyExpr> mapKeys = table.getMapKeys();
+        Where where = (includeProps && !check) ? Where.FALSE() : getIncorrectWhere(table, baseClass, mapKeys);
+        ImMap<Object, Expr> propExprs;
+        if(includeProps) {
+            Where keyWhere = where;
+            final ImValueMap<PropertyField, Expr> mPropExprs = table.properties.mapItValues();
+            for (int i=0,size=table.properties.size();i<size;i++) {
+                final PropertyField field = table.properties.get(i);
+                Result<Expr> propExpr = new Result<>();
+                Where propWhere = getIncorrectWhere(table, field, baseClass, mapKeys, propExpr);
+                where = where.or(propWhere);
+                mPropExprs.mapValue(i, check ? ValueExpr.TRUE.and(propWhere) : propExpr.result.and(propWhere.not()));
             }
-
+            propExprs = BaseUtils.immutableCast(mPropExprs.immutableValue());
+            if(check)
+                propExprs = propExprs.addExcl("KEYS", ValueExpr.TRUE.and(keyWhere));
         } else
-            run.run(session);
+            propExprs = MapFact.EMPTY();
+
+        return new Query<>(mapKeys, propExprs, where);
+    }
+
+    public static void recalculateTableClasses(ImplementTable table, SQLSession sql, boolean runInTransaction, BaseClass baseClass) throws SQLException, SQLHandledException {
+        run(sql, runInTransaction, RECALC_CLASSES_TIL, sql1 -> recalculateTableClasses(table, sql1, null, baseClass));
     }
 
     public List<AggregateProperty> getDependentProperties(DataSession dataSession, Property<?> property, Set<Property> calculated, boolean dependencies) throws SQLException, SQLHandledException {
@@ -2226,36 +2263,31 @@ public class DBManager extends LogicsManager implements InitializingBean {
 
     @StackProgress
     private void recalculateMaterialization(final DataSession dataSession, SQLSession session, boolean isolatedTransaction, @StackProgress final ProgressBar progressBar, final List<String> messageList, final long maxRecalculateTime, @ParamMessage final AggregateProperty property, final Logger logger) throws SQLException, SQLHandledException {
-        run(session, isolatedTransaction, sql -> {
-            long start = System.currentTimeMillis();
-            logger.info(String.format("Recalculating materialization %s of %s started: %s", progressBar.progress, progressBar.total, property.getSID()));
-            property.recalculateMaterialization(businessLogics, dataSession, sql, LM.baseClass);
+        long start = System.currentTimeMillis();
+        logger.info(String.format("Recalculating materialization %s of %s started: %s", progressBar.progress, progressBar.total, property.getSID()));
+        property.recalculateMaterialization(businessLogics, dataSession, session, isolatedTransaction, LM.baseClass);
 
-            long time = System.currentTimeMillis() - start;
-            String message = String.format("Recalculating materialization: %s, %sms", property.getSID(), time);
-            logger.info(message);
-            if (time > maxRecalculateTime)
-                messageList.add(message);
-        });
+        long time = System.currentTimeMillis() - start;
+        String message = String.format("Recalculating materialization: %s, %sms", property.getSID(), time);
+        logger.info(message);
+        if (time > maxRecalculateTime)
+            messageList.add(message);
     }
 
-    public void recalculateTableClasses(SQLSession session, String tableName, boolean isolatedTransaction) throws SQLException, SQLHandledException {
-        for (ImplementTable table : LM.tableFactory.getImplementTables())
-            if (tableName.equals(table.getName())) {
-                runTableClassesRecalculation(session, table, isolatedTransaction);
-            }
+    @StackMessage("{logics.recalculating.data.classes}")
+    public static void recalculateTableClasses(ImplementTable table, SQLSession sql, QueryEnvironment env, BaseClass baseClass) throws SQLException, SQLHandledException {
+        Query<KeyField, PropertyField> query;
+
+        query = BaseUtils.immutableCast(getIncorrectQuery(table, baseClass, false, false));
+        sql.deleteRecords(new ModifyQuery(table, query, env == null ? OperationOwner.unknown : env.getOpOwner(), TableOwner.global));
+
+        query = BaseUtils.immutableCast(getIncorrectQuery(table, baseClass, true, false));
+        if(!query.properties.isEmpty())
+            sql.updateRecords(new ModifyQuery(table, query, env == null ? OperationOwner.unknown : env.getOpOwner(), TableOwner.global));
     }
 
-    public String checkTableClasses(SQLSession session, String tableName, boolean isolatedTransaction) throws SQLException, SQLHandledException {
-        for (ImplementTable table : LM.tableFactory.getImplementTables())
-            if (tableName.equals(table.getName())) {
-                return DataSession.checkTableClasses(table, session, LM.baseClass, true);
-            }
-        return null;
-    }
-
-    private void runTableClassesRecalculation(SQLSession session, final ImplementTable implementTable, boolean isolatedTransaction) throws SQLException, SQLHandledException {
-        run(session, isolatedTransaction, sql -> DataSession.recalculateTableClasses(implementTable, sql, LM.baseClass));
+    public static void run(SQLSession session, boolean runInTransaction, boolean serializable, RunService run) throws SQLException, SQLHandledException {
+        run(session, runInTransaction, serializable, run, 0);
     }
 
 
@@ -2266,11 +2298,15 @@ public class DBManager extends LogicsManager implements InitializingBean {
     }
 
     public <P extends PropertyInterface> void runMaterializationRecalculation(final DataSession dataSession, SQLSession session, final AggregateProperty<P> aggregateProperty, PropertyChange<P> where, boolean isolatedTransaction) throws SQLException, SQLHandledException {
-        runMaterializationRecalculation(dataSession, session, aggregateProperty, where, isolatedTransaction, true);
+        runMaterializationRecalculation(dataSession, session, aggregateProperty, where, isolatedTransaction, null);
     }
 
-    public <P extends PropertyInterface> void runMaterializationRecalculation(final DataSession dataSession, SQLSession session, final AggregateProperty<P> aggregateProperty, PropertyChange<P> where, boolean isolatedTransaction, boolean recalculateClasses) throws SQLException, SQLHandledException {
-        run(session, isolatedTransaction, sql -> aggregateProperty.recalculateMaterialization(businessLogics, dataSession, sql, LM.baseClass, where, recalculateClasses));
+    public <P extends PropertyInterface> void runMaterializationRecalculation(final DataSession dataSession, SQLSession session, final AggregateProperty<P> aggregateProperty, PropertyChange<P> where, boolean isolatedTransaction, Boolean recalculateClasses) throws SQLException, SQLHandledException {
+        aggregateProperty.recalculateMaterialization(businessLogics, dataSession, session, LM.baseClass, where, recalculateClasses, isolatedTransaction);
+    }
+
+    public <P extends PropertyInterface> void runRecalculateClasses(SQLSession session, final AbstractDataProperty abstractDataProperty, PropertyChange<ClassPropertyInterface> where, boolean isolatedTransaction) throws SQLException, SQLHandledException {
+        abstractDataProperty.recalculateClasses(session, isolatedTransaction, LM.baseClass, where);
     }
 
     public void recalculateMaterializationWithDependenciesTableColumn(SQLSession session, ExecutionStack stack, String propertyCanonicalName, boolean isolatedTransaction, boolean dependencies) throws SQLException, SQLHandledException {
@@ -2343,9 +2379,9 @@ public class DBManager extends LogicsManager implements InitializingBean {
                     parser.self = migrationManager;
 
                     parser.script();
-                    
+
                     checkMigrationScriptParsingErrors(lexer, parser);
-                    
+
                     migrationScriptWasRead = true;
                 }
             } catch (Exception e) {
@@ -2353,22 +2389,22 @@ public class DBManager extends LogicsManager implements InitializingBean {
             }
         }
     }
-    
+
     private void checkMigrationScriptParsingErrors(MigrationScriptLexer lexer, MigrationScriptParser parser) {
         if (!lexer.getErrors().isEmpty() || !parser.getErrors().isEmpty()) {
             String errorsText = Stream.concat(lexer.getErrors().stream(), parser.getErrors().stream()).collect(Collectors.joining("\n"));
             throw new RuntimeException("Migration script parsing completed with the following errors:\n" + errorsText);
         }
     }
-    
+
     private void renameColumn(SQLSession sql, OldDBStructure oldData, DBStoredProperty oldProperty, String newName) throws SQLException {
         String oldName = oldProperty.getDBName();
-        if (!oldName.equals(newName)) {
+        if (!oldName.equalsIgnoreCase(newName)) {
             startLog("Renaming column from " + oldName + " to " + newName + " in table " + oldProperty.tableName);
             sql.renameColumn(oldProperty.getTableName(getSyntax()), oldName, newName);
-            PropertyField field = oldData.getTable(oldProperty.tableName).findProperty(oldName);
-            field.setName(newName);
         }
+        PropertyField field = oldData.getTable(oldProperty.tableName).findProperty(oldName);
+        field.setName(newName);
     }
     
     private void renameMigratingProperties(SQLSession sql, OldDBStructure oldData, NewDBStructure newData) throws SQLException {
@@ -2412,8 +2448,10 @@ public class DBManager extends LogicsManager implements InitializingBean {
             String tableDBName = table.getName();
             if (tableRenames.containsKey(tableDBName)) {
                 String newDBName = tableRenames.get(tableDBName);
-                startLog("Renaming table from " + tableDBName + " to " + newDBName);
-                sql.renameTable(table, newDBName);
+                if (!tableDBName.equalsIgnoreCase(newDBName)) {
+                    startLog("Renaming table from " + tableDBName + " to " + newDBName);
+                    sql.renameTable(table, newDBName);
+                }
                 table.setName(newDBName);
             }
         }
@@ -2424,7 +2462,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
         if (oldData.version < 38) {
             return getTableSIDChanges(tableCNChanges);
         }
-        
+
         Map<String, String> tableRenames = new HashMap<>();
         Map<String, DBTable> newTablesMap = createNewTablesMap(newData);
         for (DBTable table : oldData.tables.keySet()) {
@@ -2442,13 +2480,13 @@ public class DBManager extends LogicsManager implements InitializingBean {
         }
         return tableRenames;
     }
-    
+
     private Map<String, DBTable> createNewTablesMap(NewDBStructure newData) {
         return newData.tables.keySet().stream()
                 .filter(table -> table.getCanonicalName() != null)
                 .collect(Collectors.toMap(DBTable::getCanonicalName, table -> table));
     }
-    
+
     private Map<String, String> getTableSIDChanges(Map<String, String> tableCNChanges) {
         return tableCNChanges.entrySet().stream()
                     .collect(Collectors.toMap(
@@ -2456,7 +2494,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
                         entry -> getNamingPolicy().transformTableCNToDBName(entry.getValue()))
                     );
     }
-    
+
     private void renameMigratingClasses(OldDBStructure oldData) {
         Map<String, String> classChanges = migrationManager.getClassSIDChangesAfter(oldData.migrationVersion);
         for (DBConcreteClass oldClass : oldData.concreteClasses) {
@@ -2470,32 +2508,32 @@ public class DBManager extends LogicsManager implements InitializingBean {
         // Изменим в старой структуре классовые свойства. Предполагаем, что в одной таблице может быть только одно классовое свойство. Переименовываем поля в таблицах
         Map<String, String> tableNewClassProps = new HashMap<>();
         for (DBConcreteClass cls : newData.concreteClasses) {
-            DBStoredProperty classProp = newData.getProperty(cls.sDataPropID);
+            DBStoredProperty classProp = newData.getProperty(cls.dataPropCN);
             assert classProp != null;
             String tableName = classProp.getTable().getName();
             if (tableNewClassProps.containsKey(tableName)) {
-                assert cls.sDataPropID.equals(tableNewClassProps.get(tableName));
+                assert cls.dataPropCN.equals(tableNewClassProps.get(tableName));
             } else {
-                tableNewClassProps.put(tableName, cls.sDataPropID);
+                tableNewClassProps.put(tableName, cls.dataPropCN);
             }
         }
         
         Map<String, String> nameRenames = new HashMap<>();
         for (DBConcreteClass cls : oldData.concreteClasses) {
-            if (!nameRenames.containsKey(cls.sDataPropID)) {
-                DBStoredProperty oldClassProp = oldData.getProperty(cls.sDataPropID);
+            if (!nameRenames.containsKey(cls.dataPropCN)) {
+                DBStoredProperty oldClassProp = oldData.getProperty(cls.dataPropCN);
                 assert oldClassProp != null;
                 String tableName = oldClassProp.tableName;
                 if (tableNewClassProps.containsKey(tableName)) {
                     String newName = tableNewClassProps.get(tableName);
-                    nameRenames.put(cls.sDataPropID, newName);
+                    nameRenames.put(cls.dataPropCN, newName);
                     String newDBName = getNamingPolicy().transformActionOrPropertyCNToDBName(newName);
                     renameColumn(sql, oldData, oldClassProp, newDBName);
                     oldClassProp.migrateNames(newName);
-                    cls.sDataPropID = newName;
+                    cls.dataPropCN = newName;
                 }
             } else {
-                cls.sDataPropID = nameRenames.get(cls.sDataPropID);
+                cls.dataPropCN = nameRenames.get(cls.dataPropCN);
             }
         }
     } 
@@ -2578,7 +2616,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
     public <Z extends PropertyInterface> void addIndex(ImList<PropertyObjectInterfaceImplement<String>> index, String dbName, IndexType indexType) {
         PropertyRevImplement<Z, String> propertyImplement = (PropertyRevImplement<Z, String>) findProperty(index);
         if(propertyImplement != null) {
-            indexes.put(index, new IndexOptions(propertyImplement.property.getType() instanceof DataClass, indexType, Settings.get().getFilterMatchLanguage(), dbName));
+            indexes.put(index, new IndexOptions(propertyImplement.property.getType() instanceof DataClass, indexType, dbName));
             propertyImplement.property.markIndexed(propertyImplement.mapping, index, indexType);
         }
     }
@@ -2592,12 +2630,20 @@ public class DBManager extends LogicsManager implements InitializingBean {
         return null;
     }
 
-    public String getBackupFilePath(String dumpFileName) throws IOException, InterruptedException {
+    public boolean checkBackupParams(ExecutionContext context) {
+        return adapter.checkBackupParams(context);
+    }
+
+    public String getBackupFilePath(String dumpFileName) {
         return adapter.getBackupFilePath(dumpFileName);
     }
 
-    public String backupDB(ExecutionContext context, String dumpFileName, int threadCount, List<String> excludeTables) throws IOException, InterruptedException {
-        return adapter.backupDB(context, dumpFileName, threadCount, excludeTables);
+    public String getBackupFileLogPath(String dumpFileName) {
+        return adapter.getBackupFileLogPath(dumpFileName);
+    }
+
+    public void backupDB(ExecutionContext context, String dumpFileName, int threadCount, List<String> excludeTables) throws IOException, InterruptedException {
+        adapter.backupDB(context, dumpFileName, threadCount, excludeTables);
     }
 
     public String customRestoreDB(String fileBackup, Set<String> tables, boolean isMultithread) throws IOException {
@@ -2620,42 +2666,230 @@ public class DBManager extends LogicsManager implements InitializingBean {
         session.executeDDL(getSyntax().getVacuumDB());
     }
 
+    private static void run(SQLSession session, boolean runInTransaction, boolean serializable, RunService run, int attempts) throws SQLException, SQLHandledException {
+        if(runInTransaction) {
+            session.startTransaction(serializable, OperationOwner.unknown);
+            try {
+                run.run(session);
+                session.commitTransaction();
+            } catch (Throwable t) {
+                session.rollbackTransaction();
+                if(t instanceof SQLHandledException && ((SQLHandledException)t).repeatApply(session, OperationOwner.unknown, attempts)) { // update conflict или deadlock или timeout - пробуем еще раз
+                    //serviceLogger.error("Run error: ", t);
+                    run(session, true, serializable, run, attempts + 1);
+                    return;
+                }
+
+                throw ExceptionUtils.propagate(t, SQLException.class, SQLHandledException.class);
+            }
+        } else
+            run.run(session);
+    }
+
     public static void packTables(SQLSession session, ImCol<ImplementTable> tables, boolean isolatedTransaction) throws SQLException, SQLHandledException {
         startLog("Packing tables");
         for (final ImplementTable table : tables) {
             logger.debug(localize("{logics.info.packing.table}") + " (" + table + ")... ");
-            run(session, isolatedTransaction, sql -> sql.packTable(table, OperationOwner.unknown, TableOwner.global));
+            packTable(session, table, isolatedTransaction);
             logger.debug("Done");
         }
     }
 
-    public static int START_TIL = -1;
-    public static int DEBUG_TIL = -1;
-    public static int RECALC_TIL = -1;
-    
-    public static boolean DISABLE_SESSION_TIL = false;
-    public static int getSessionTIL() {
-        return DISABLE_SESSION_TIL ? -1 : getTIL();
+    public static void packTable(SQLSession session, ImplementTable table, boolean isolatedTransaction) throws SQLException, SQLHandledException {
+        run(session, isolatedTransaction, PACK_TIL, sql -> sql.packTable(table, OperationOwner.unknown, TableOwner.global));
     }
-    
-    public static int getTIL() {
-        return Settings.get().isTrueSerializable() ? Connection.TRANSACTION_SERIALIZABLE : Connection.TRANSACTION_REPEATABLE_READ;
+
+    public String checkClasses(SQLSession session, boolean isolatedTransaction) throws SQLException, SQLHandledException {
+        String message = checkClasses(session, isolatedTransaction, LM.baseClass);
+        for(ImplementTable implementTable : LM.tableFactory.getImplementTables()) {
+            message += checkTableClasses(implementTable, session, isolatedTransaction, LM.baseClass, false); // так как снизу есть проверка классов
+        }
+        ImOrderSet<AbstractDataProperty> storedDataProperties;
+        try(DataSession dataSession = createRecalculateSession(session)) {
+            storedDataProperties = businessLogics.getStoredDataProperties(dataSession);
+        }
+        for (Property property : storedDataProperties)
+            message += property.checkClasses(session, isolatedTransaction, LM.baseClass);
+        return message;
     }
-    
-    private static Stack<Integer> STACK_TIL = new Stack<>();
-    
-    public static void pushTIL(Integer TIL) {
-        STACK_TIL.push(TIL);
+
+    public void recalculateClassesExclusiveness(final SQLSession sql, boolean isolatedTransactions) throws SQLException, SQLHandledException {
+        runClassesExclusiveness(sql, isolatedTransactions, query -> {
+            SingleKeyTableUsage<String> table = new SingleKeyTableUsage<>("recexcl", ObjectType.instance, SetFact.toOrderExclSet("sum", "agg"), key -> key.equals("sum") ? ValueExpr.COUNTCLASS : StringClass.getv(false, ExtInt.UNLIMITED));
+
+            table.writeRows(sql, query, LM.baseClass, DataSession.emptyEnv(OperationOwner.unknown), SessionTable.nonead);
+
+            MExclMap<ConcreteCustomClass, MExclSet<String>> mRemoveClasses = MapFact.mExclMap();
+            for (Object distinct : table.readDistinct("agg", sql, OperationOwner.unknown)) { // разновидности agg читаем
+                String classes = (String) distinct;
+                ConcreteCustomClass keepClass = null;
+                for (String singleClass : classes.split(",")) {
+                    ConcreteCustomClass customClass = LM.baseClass.findConcreteClassID(Long.parseLong(singleClass));
+                    if (customClass != null) {
+                        if (keepClass == null)
+                            keepClass = customClass;
+                        else {
+                            ConcreteCustomClass removeClass;
+                            if (keepClass.isChild(customClass)) {
+                                removeClass = keepClass;
+                                keepClass = customClass;
+                            } else
+                                removeClass = customClass;
+
+                            MExclSet<String> mRemoveStrings = mRemoveClasses.get(removeClass);
+                            if (mRemoveStrings == null) {
+                                mRemoveStrings = SetFact.mExclSet();
+                                mRemoveClasses.exclAdd(removeClass, mRemoveStrings);
+                            }
+                            mRemoveStrings.exclAdd(classes);
+                        }
+                    }
+                }
+            }
+            ImMap<ConcreteCustomClass, ImSet<String>> removeClasses = MapFact.immutable(mRemoveClasses);
+
+            for (int i = 0, size = removeClasses.size(); i < size; i++) {
+                KeyExpr key = new KeyExpr("key");
+                Expr aggExpr = table.join(key).getExpr("agg");
+                Where where = Where.FALSE();
+                for (String removeString : removeClasses.getValue(i))
+                    where = where.or(aggExpr.compare(new DataObject(removeString, StringClass.text), Compare.EQUALS));
+                removeClasses.getKey(i).dataProperty.dropInconsistentClasses(sql, LM.baseClass, key, where, OperationOwner.unknown);
+            }
+        }, LM.baseClass);
     }
-    
-    public static Integer popTIL() {
-        return STACK_TIL.isEmpty() ? null : STACK_TIL.pop();
+
+    public void uploadToDB(SQLSession sql, boolean isolatedTransactions, final DataAdapter adapter) throws ClassNotFoundException, SQLException, InstantiationException, IllegalAccessException, SQLHandledException {
+        final OperationOwner owner = OperationOwner.unknown;
+        final SQLSession sqlFrom = new SQLSession(adapter, contextProvider);
+
+        sql.pushNoQueryLimit();
+        try {
+            ImSet<DBTable> tables = SetFact.addExcl(LM.tableFactory.getImplementTables(), IDTable.instance);
+            final int size = tables.size();
+            for (int i = 0; i < size; i++) {
+                final DBTable implementTable = tables.get(i);
+                final int fi = i;
+                run(sql, isolatedTransactions, UPLOAD_TIL, sql1 -> uploadTableToDB(sql1, implementTable, fi + "/" + size, sqlFrom, owner));
+            }
+        } finally {
+            sql.popNoQueryLimit();
+        }
     }
-    
-    public static Integer getCurrentTIL() {
-        return STACK_TIL.isEmpty() ? getSessionTIL() : STACK_TIL.peek();
+
+    public String checkMaterializations(SQLSession session, boolean isolatedTransaction) throws SQLException, SQLHandledException {
+        List<AggregateProperty> checkProperties;
+        try(DataSession dataSession = createRecalculateSession(session)) {
+            checkProperties = businessLogics.getRecalculateAggregateStoredProperties(dataSession, false);
+        }
+        String message = "";
+        for (int i = 0; i < checkProperties.size(); i++) {
+            Property property = checkProperties.get(i);
+            if(property != null)
+                message += ((AggregateProperty) property).checkMaterialization(session, LM.baseClass, new ProgressBar(localize("{logics.info.checking.materialized.property}"), i, checkProperties.size(), property.toString()), isolatedTransaction);
+        }
+        return message;
     }
-    
+
+//    public String checkStats(SQLSession session) throws SQLException, SQLHandledException {
+//        ImOrderSet<Property> checkProperties = businessLogics.getPropertyList();
+//
+//        double cnt = 0;
+//        List<Double> sum = new ArrayList<Double>();
+//        List<List<Double>> sumd = new ArrayList<List<Double>>();
+//        for(int i=0;i<4;i++) {
+//            sum.add(0.0);
+//            sumd.add(new ArrayList<Double>());
+//        }
+//
+//        final Result<Integer> proceeded = new Result<Integer>(0);
+//        int total = checkProperties.size();
+//        ThreadLocalContext.pushActionMessage("Proceeded : " + proceeded.result + " of " + total);
+//        try {
+//            String message = "";
+//            for (Property property : checkProperties) {
+//                if(property instanceof AggregateProperty) {
+//                    List<Double> diff = ((AggregateProperty) property).checkStats(session, LM.baseClass);
+//                    if(diff != null) {
+//                        for(int i=0;i<4;i++) {
+//                            sum.set(i, sum.get(i) + diff.get(i));
+//                            sumd.get(i).add(diff.get(i));
+//                            cnt++;
+//                        }
+//                    }
+//                }
+//
+//                if(cnt % 100 == 0) {
+//                    for(int i=0;i<4;i++) {
+//                        double avg = (double) sum.get(i) / (double) cnt;
+//                        double disp = 0;
+//                        for (double diff : sumd.get(i)) {
+//                            disp += ((double) diff - avg) * ((double) diff - avg);
+//                        }
+//                        System.out.println("I: " + i + "AVG : " + avg + " DISP : " + (disp) / cnt);
+//                    }
+//                }
+//
+//                proceeded.set(proceeded.result + 1);
+//                ThreadLocalContext.popActionMessage();
+//                ThreadLocalContext.pushActionMessage("Proceeded : " + proceeded.result + " of " + total);
+//            }
+//            return message;
+//        } finally {
+//            ThreadLocalContext.popActionMessage();
+//        }
+//    }
+//
+    public String checkMaterializationTableColumn(SQLSession session, String propertyCanonicalName, boolean runInTransaction) throws SQLException, SQLHandledException {
+        Property property = businessLogics.getAggregateStoredProperty(propertyCanonicalName);
+        return property != null ? ((AggregateProperty) property).checkMaterialization(session, LM.baseClass, runInTransaction) : null;
+    }
+
+    public String recalculateClasses(SQLSession session, boolean isolatedTransactions) throws SQLException, SQLHandledException {
+        recalculateClassesExclusiveness(session, isolatedTransactions);
+
+        final List<String> messageList = new ArrayList<>();
+        final long maxRecalculateTime = Settings.get().getMaxRecalculateTime();
+        for (final ImplementTable implementTable : LM.tableFactory.getImplementTables()) {
+            long start = System.currentTimeMillis();
+            recalculateTableClasses(implementTable, session, isolatedTransactions, LM.baseClass);
+            long time = System.currentTimeMillis() - start;
+            String message = String.format("Recalculate Table Classes: %s, %sms", implementTable.toString(), time);
+            BaseUtils.serviceLogger.info(message);
+            if (time > maxRecalculateTime)
+                messageList.add(message);
+        }
+
+        try(DataSession dataSession = createRecalculateSession(session)) {
+            for (final AbstractDataProperty property : businessLogics.getStoredDataProperties(dataSession)) {
+                long start = System.currentTimeMillis();
+                property.recalculateClasses(session, isolatedTransactions, LM.baseClass);
+                long time = System.currentTimeMillis() - start;
+                String message = String.format("Recalculate Class: %s, %sms", property.getSID(), time);
+                BaseUtils.serviceLogger.info(message);
+                if (time > maxRecalculateTime) messageList.add(message);
+            }
+            return businessLogics.formatMessageList(messageList);
+        }
+    }
+
+    public void recalculateTableClasses(SQLSession session, String tableName, boolean isolatedTransaction) throws SQLException, SQLHandledException {
+        for (ImplementTable table : LM.tableFactory.getImplementTables())
+            if (tableName.equals(table.getName())) {
+                recalculateTableClasses(table, session, isolatedTransaction, LM.baseClass);
+            }
+    }
+
+    public String checkTableClasses(SQLSession session, String tableName, boolean isolatedTransaction) throws SQLException, SQLHandledException {
+        for (ImplementTable table : LM.tableFactory.getImplementTables())
+            if (tableName.equals(table.getName())) {
+                return checkTableClasses(table, session, isolatedTransaction, LM.baseClass, true);
+            }
+        return null;
+    }
+
+    public boolean serializable = true;
+
     public static String HOSTNAME_COMPUTER;
 
     public static boolean RECALC_REUPDATE = false;
@@ -2702,13 +2936,20 @@ public class DBManager extends LogicsManager implements InitializingBean {
         RawFileData struct = (RawFileData) sql.readRecord(structTable, MapFact.EMPTY(), structTable.struct, OperationOwner.unknown);
         if (struct != null) {
             inputDB = new DataInputStream(struct.getInputStream());
-            //noinspection ResultOfMethodCallIgnored
-            inputDB.read();
+            readOldDBVersion(inputDB);
             migrationVersion = new MigrationVersion(inputDB.readUTF());
         }
         return migrationVersion;
     }
-
+    
+    public int readOldDBVersion(DataInputStream input) throws IOException {
+        int version = input.read() - 'v'; // for backward compatibility
+        if (version == 0) {
+            version = input.readInt();
+        }
+        return version;
+    }
+    
     public Map<String, String> getPropertyCNChanges(SQLSession sql) {
         runMigrationScript();
         try {
@@ -2780,25 +3021,25 @@ public class DBManager extends LogicsManager implements InitializingBean {
 
     private class DBConcreteClass {
         public String sID;
-        public String sDataPropID; // в каком ClassDataProperty хранился
+        public String dataPropCN; // в каком ClassDataProperty хранился
 
         @Override
         public String toString() {
-            return sID + ' ' + sDataPropID;
+            return sID + ' ' + dataPropCN;
         }
 
         public Long ID = null; // только для старых
         public ConcreteCustomClass customClass = null; // только для новых
 
-        private DBConcreteClass(String sID, String sDataPropID, Long ID) {
+        private DBConcreteClass(String sID, String dataPropCN, Long ID) {
             this.sID = sID;
-            this.sDataPropID = sDataPropID;
+            this.dataPropCN = dataPropCN;
             this.ID = ID;
         }
 
         private DBConcreteClass(ConcreteCustomClass customClass) {
             sID = customClass.getSID();
-            sDataPropID = customClass.dataProperty.getCanonicalName();
+            dataPropCN = customClass.dataProperty.getCanonicalName();
 
             this.customClass = customClass;
         }
@@ -2816,7 +3057,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
             outDB.writeInt(concreteClasses.size());
             for (DBConcreteClass concreteClass : concreteClasses) {
                 outDB.writeUTF(concreteClass.sID);
-                outDB.writeUTF(concreteClass.sDataPropID);
+                outDB.writeUTF(concreteClass.dataPropCN);
                 outDB.writeLong(concreteClass.ID);
             }
         }
@@ -2843,13 +3084,18 @@ public class DBManager extends LogicsManager implements InitializingBean {
     public static class IndexData<F> {
         public List<F> fields;
         public IndexOptions options;
-        
+
         public IndexData(List<F> fields, IndexOptions options) {
             this.fields = fields;
             this.options = options;
         }
+
+        @Override
+        public String toString() {
+            return String.format("%s (%s)", fields, options.type);
+        }
     }
-    
+
     // Each index declaration can create more than one physical index. Returns a separate record for each such index
     public <P extends PropertyInterface<?>> Map<ImplementTable, List<IndexData<Field>>> getIndexesMap() {
         Map<ImplementTable, List<IndexData<Field>>> res = new HashMap<>();
@@ -2899,7 +3145,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
                 }
                 tableIndexFields.add(field);
             }
-    
+
             IndexOptions options = index.getValue();
             res.get(baseIndexTable).addAll(getAllCreatedIndexes(tableIndexFields, options));
         }
@@ -2910,32 +3156,30 @@ public class DBManager extends LogicsManager implements InitializingBean {
     private List<IndexData<Field>> getAllCreatedIndexes(List<Field> fields, IndexOptions options) {
         List<IndexData<Field>> res = new ArrayList<>();
         res.add(new IndexData<>(fields, options));
-        
+
         if (options.type == IndexType.MATCH) {
             if (fields.size() == 1 && fields.get(0).type instanceof TSVectorClass) {
                 return res;
             }
-            res.add(new IndexData<>(fields, changeIndexOptions(options, IndexType.LIKE)));
+            res.add(new IndexData<>(fields, options.changeType(IndexType.LIKE)));
         }
         if (options.type == IndexType.LIKE || options.type == IndexType.MATCH) {
-            res.add(new IndexData<>(fields, changeIndexOptions(options, IndexType.DEFAULT)));
+            res.add(new IndexData<>(fields, options.changeType(IndexType.DEFAULT)));
         }
         return res;
     }
-    
-    private IndexOptions changeIndexOptions(IndexOptions oldOptions, IndexType newType) {
-        String newDBName = (oldOptions.dbName == null ? null : oldOptions.dbName + newType.suffix());
-        return new IndexOptions(oldOptions.order, newType, oldOptions.language, newDBName);
-    }
-    
+
     private class NewDBStructure extends DBStructure<Field> {
         
-        public NewDBStructure(MigrationVersion migrationVersion) {
+        public NewDBStructure(MigrationVersion migrationVersion, SQLSession sql) {
             version = newDBStructureVersion;
             this.migrationVersion = migrationVersion;
 
-            checkForDuplicateTableDBNames();
+            checkTableDBNameUniqueness();
             tables.putAll(getIndexesMap());
+
+            checkIndexNameUniqueness(sql);
+            checkTablesAndIndexesNameUniqueness(sql);
 
             for (Property<?> property : businessLogics.getStoredProperties()) {
                 storedProperties.add(new DBStoredProperty(property));
@@ -2946,40 +3190,82 @@ public class DBManager extends LogicsManager implements InitializingBean {
                 concreteClasses.add(new DBConcreteClass(customClass));
             }
         }
-        
-        public class DuplicateTableDBNameException extends RuntimeException {
-            DuplicateTableDBNameException(String message) {
+
+        public class DuplicateRelationNameException extends RuntimeException {
+            DuplicateRelationNameException(String message) {
                 super(message);
             }
         }
-        
-        private void checkForDuplicateTableDBNames() {
+
+        private void checkTableDBNameUniqueness() {
             final String possibleReasonStr = "This may be caused by the length limitation on database table names, " +
                     "where two different table names are truncated to the same name.";
-            
+
             Map<String, ImplementTable> tables = new HashMap<>();
             for (ImplementTable table : LM.tableFactory.getImplementTables()) {
                 if (tables.containsKey(table.getName())) {
+                    String resolveStr, tablesStr;
                     if (table.getCanonicalName() != null) {
-                        String resolveStr = "In this case, you can either change the table database name or change the naming policy (refer to the documentation for details)";
-                        String tablesStr = String.format("Tables '%s' and '%s' have the same database name '%s'.",
+                        resolveStr = "In this case, you can either change the table database name or change the naming policy (refer to the documentation for details)";
+                        tablesStr = String.format("Tables '%s' and '%s' have the same database name '%s'.",
                                 table.getCanonicalName(),
                                 tables.get(table.getName()).getCanonicalName(),
                                 table.getName());
-                        throw new DuplicateTableDBNameException(String.join("\n", "", tablesStr, possibleReasonStr, resolveStr));
                     } else {
-                        String resolveStr = "In this case, you can either explicitly declare the tables or change the naming policy (refer to the documentation for details)";
-                        String formatStr = String.format("Auto tables with classes\n\t'%s' and\n\t'%s'\nhave the same database name: '%s'",
+                        resolveStr = "In this case, you can either explicitly declare the tables or change the naming policy (refer to the documentation for details)";
+                        tablesStr = String.format("Auto tables with classes\n\t'%s' and\n\t'%s'\nhave the same database name: '%s'.",
                                 table.getMapFields(),
                                 tables.get(table.getName()).getMapFields(),
                                 table.getName());
-                        throw new DuplicateTableDBNameException(String.join("\n","", formatStr, possibleReasonStr, resolveStr));
                     }
+                    throw new DuplicateRelationNameException(String.join("\n","", tablesStr, possibleReasonStr, resolveStr));
                 }
                 tables.put(table.getName(), table);
             }
         }
-        
+
+        private void checkIndexNameUniqueness(SQLSession sql) {
+            Map<String, Pair<DBTable, IndexData<Field>>> indexNames = new HashMap<>();
+            for (Map.Entry<DBTable, List<IndexData<Field>>> tableInfo : tables.entrySet()) {
+                DBTable table = tableInfo.getKey();
+                for (IndexData<Field> index : tableInfo.getValue()) {
+                    String name = sql.getIndexName(table, index);
+                    if (indexNames.containsKey(name)) {
+                        final String formatStr = "Two indexes has the same database name: '%s'. " +
+                                "These indexes are:\n%s in table '%s'\n%s in table '%s'\nOne of the indexes will not be created.";
+                        final String msg = String.format(formatStr, name, index, table.getName(), indexNames.get(name).second, indexNames.get(name).first.getName());
+                        if (Settings.get().isStartServerAnyWay()) {
+                            startLogWarn(msg);
+                        } else {
+                            throw new DuplicateRelationNameException(msg);
+                        }
+                    }
+                    indexNames.put(name, new Pair<>(table, index));
+                }
+            }
+        }
+
+        private void checkTablesAndIndexesNameUniqueness(SQLSession sql) {
+            Map<String, DBTable> tableNames = new HashMap<>();
+            for (DBTable table : tables.keySet()) {
+                tableNames.put(table.getName(), table);
+            }
+
+            for (Map.Entry<DBTable, List<IndexData<Field>>> tableInfo : tables.entrySet()) {
+                DBTable indexTable = tableInfo.getKey();
+                for (IndexData<Field> index : tableInfo.getValue()) {
+                    String indexName = sql.getIndexName(indexTable, index);
+                    if (tableNames.containsKey(indexName)) {
+                        DBTable table = tableNames.get(indexName);
+                        String reason = "Tables and indexes must have unique names. If a table and an index have identical names, the database cannot distinguish between them, leading to conflicts when executing queries";
+                        String formatStr = "\nTable '%s' and index %s have the same database name: '%s'.\n%s";
+                        String message = String.format(formatStr, nvl(table.getCanonicalName(), table.getName()), index, indexName, reason);
+                        throw new DuplicateRelationNameException(message);
+                    }
+                }
+            }
+        }
+
         public void write(DataOutputStream outDB) throws IOException {
             outDB.write('v' + version);  //для поддержки обратной совместимости
             outDB.writeUTF(migrationVersion.toString());
@@ -3030,7 +3316,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
     }
 
     public static int oldDBStructureVersion = 0;
-    public static int newDBStructureVersion = 39;
+    public static int newDBStructureVersion = 41;
 
     private class OldDBStructure extends DBStructure<String> {
 
@@ -3039,7 +3325,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
             if (inputDB == null) {
                 version = -2;
             } else {
-                version = inputDB.read() - 'v';
+                version = readOldDBVersion(inputDB);
                 oldDBStructureVersion = version;
                 migrationVersion = new MigrationVersion(inputDB.readUTF());
 
@@ -3063,7 +3349,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
                             index.add(inputDB.readUTF());
                         }
                         if (version < 32) {
-                            indexes.add(new IndexData<>(index, new IndexOptions(inputDB.readBoolean())));
+                            indexes.add(new IndexData<>(index, IndexOptions.deserialize32(inputDB)));
                         } else if (version < 36) {
                             indexes.add(new IndexData<>(index, IndexOptions.deserialize35(inputDB)));
                         } else {

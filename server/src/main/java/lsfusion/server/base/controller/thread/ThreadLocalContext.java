@@ -84,7 +84,7 @@ public class ThreadLocalContext {
         return context.get();
     }
     public static void assureContext(Context context) { // временно, должно уйти
-        assure(context, null);
+        //assure(context, null);
     }
 
     private static void set(Context c) {
@@ -303,8 +303,8 @@ public class ThreadLocalContext {
         get().requestFormUserInteraction(remoteForm, showFormType, forbidDuplicate, formId, stack);
     }
 
-    public static boolean canBeProcessed() {
-        return get().canBeProcessed();
+    public static boolean userInteractionCanBeProcessedInTransaction() {
+        return get().userInteractionCanBeProcessedInTransaction();
     }
 
     public static Object[] requestUserInteraction(ClientAction... actions) {

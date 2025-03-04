@@ -1,17 +1,16 @@
 package lsfusion.gwt.client.base.view;
 
 import com.google.gwt.dom.client.Element;
-import com.google.gwt.dom.client.Style;
 import com.google.gwt.event.dom.client.KeyCodes;
 import com.google.gwt.event.shared.HandlerRegistration;
 import com.google.gwt.user.client.Event;
 import com.google.gwt.user.client.Timer;
-import com.google.gwt.user.client.Window;
 import com.google.gwt.user.client.ui.HTML;
 import com.google.gwt.user.client.ui.Widget;
 import lsfusion.gwt.client.ClientMessages;
 import lsfusion.gwt.client.base.FocusUtils;
 import lsfusion.gwt.client.base.GwtClientUtils;
+import lsfusion.gwt.client.view.MainFrame;
 
 public class DialogBoxHelper {
     private static final ClientMessages messages = ClientMessages.Instance.get();
@@ -99,7 +98,7 @@ public class DialogBoxHelper {
         private MessageBox(String caption, Widget contents, String backgroundClass, int timeout, final CloseCallback closeCallback, final OptionType activeOption, OptionType... options) {
             super(caption, false, ModalWindowSize.FIT_CONTENT, backgroundClass);
             
-            dialog.addStyleName("modal-dialog-scrollable");
+            GwtClientUtils.addClassName(dialog, "modal-dialog-scrollable");
 
             this.closeCallback = closeCallback;
 
@@ -120,6 +119,10 @@ public class DialogBoxHelper {
                 };
                 timer.schedule(timeout);
             }
+
+            if (!MainFrame.useBootstrap)
+                GwtClientUtils.addShowCollapsedContainerEvent(getElement(),
+                        "span.text-primary.highlight-text", "span#collapseTextId", "collapsible-text");
 
             nativePreviewHandlerRegistration = Event.addNativePreviewHandler(event -> {
                 if (Event.ONKEYDOWN == event.getTypeInt()) {

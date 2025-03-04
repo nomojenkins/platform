@@ -83,6 +83,8 @@ public class PropertyDrawEntity<P extends PropertyInterface> extends IdentityObj
     public final ActionOrPropertyObjectEntity<P, ?> actionOrProperty;
     
     public GroupObjectEntity toDraw;
+    public boolean hide;
+    public boolean remove;
 
     private String mouseBinding;
     private Map<KeyStroke, String> keyBindings;
@@ -564,7 +566,7 @@ public class PropertyDrawEntity<P extends PropertyInterface> extends IdentityObj
     public ImSet<ObjectEntity> getObjectInstances(Function<PropertyDrawExtraType, PropertyObjectEntity<?>> getProperty) {
         MAddSet<ActionOrPropertyObjectEntity<?, ?>> propertyObjects = SetFact.mAddSet();
 
-        PropertyDrawExtraType[] neededTypes = {CAPTION, FOOTER, SHOWIF, VALUEELEMENTCLASS, CAPTIONELEMENTCLASS,
+        PropertyDrawExtraType[] neededTypes = {CAPTION, FOOTER, SHOWIF, GRIDELEMENTCLASS, VALUEELEMENTCLASS, CAPTIONELEMENTCLASS,
                 FONT, BACKGROUND, FOREGROUND, IMAGE, READONLYIF, COMMENT, COMMENTELEMENTCLASS, PLACEHOLDER, PATTERN,
                 REGEXP, REGEXPMESSAGE, TOOLTIP, VALUETOOLTIP};
         for (PropertyDrawExtraType type : neededTypes) {

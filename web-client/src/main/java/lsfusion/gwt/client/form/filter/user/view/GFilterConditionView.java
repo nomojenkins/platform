@@ -6,6 +6,7 @@ import com.google.gwt.user.client.ui.Label;
 import com.google.gwt.user.client.ui.SimplePanel;
 import com.google.gwt.user.client.ui.Widget;
 import lsfusion.gwt.client.ClientMessages;
+import lsfusion.gwt.client.base.GwtClientUtils;
 import lsfusion.gwt.client.base.Pair;
 import lsfusion.gwt.client.base.StaticImage;
 import lsfusion.gwt.client.base.jsni.HasNativeSID;
@@ -68,6 +69,8 @@ public class GFilterConditionView extends FlexPanel implements HasNativeSID {
 
     // may not be applied without "Allow NULL", but we want to keep condition visible
     public boolean confirmed;
+    
+    protected boolean applied;
 
     private static int idCounter = 0;
     private final String sID;
@@ -87,20 +90,20 @@ public class GFilterConditionView extends FlexPanel implements HasNativeSID {
 
         this.sID = "" + (idCounter++);
         
-        addStyleName("filter");
+       GwtClientUtils.addClassName(this, "filter");
 
         allowNull = !condition.isFixed();
         
         leftPanel = new FlexPanel();
         rightPanel = new FlexPanel();
-        rightPanel.addStyleName("btn-toolbar");
+        GwtClientUtils.addClassName(rightPanel, "btn-toolbar");
 
         Column currentColumn = new Column(condition.property, condition.columnKey != null ? condition.columnKey : GGroupObjectValue.EMPTY);
         String currentCaption = columnsProvider.getColumns().get(currentColumn);
         
         propertyLabel = new Label(currentCaption);
         propertyLabel.setTitle(currentCaption);
-        propertyLabel.addStyleName("filter-label");
+        GwtClientUtils.addClassName(propertyLabel, "filter-label");
         leftPanel.addCentered(propertyLabel);
 
         propertyView = new GFilterOptionSelector<Column>(uiHandler) {
@@ -126,7 +129,7 @@ public class GFilterConditionView extends FlexPanel implements HasNativeSID {
         
         compareLabel = new Label();
         updateCompareLabelText();
-        compareLabel.addStyleName("filter-label");
+        GwtClientUtils.addClassName(compareLabel, "filter-label");
         compareLabel.setVisible(isFixed() && !controlsVisible);
         leftPanel.addCentered(compareLabel);
 
@@ -194,7 +197,7 @@ public class GFilterConditionView extends FlexPanel implements HasNativeSID {
                 return event -> GFilterConditionView.this.remove();
             }
         };
-        deleteButton.addStyleName("filter-button");
+        GwtClientUtils.addClassName(deleteButton, "filter-button");
         deleteButton.setVisible(!isFixed() || controlsVisible);
         rightPanel.add(deleteButton, GFlexAlignment.CENTER);
 
@@ -205,7 +208,7 @@ public class GFilterConditionView extends FlexPanel implements HasNativeSID {
         junctionView = new GToolbarButton(
                 MainFrame.useTextAsFilterSeparator ? messages.formFilterConditionViewAnd() : null,
                 MainFrame.useTextAsFilterSeparator ? null : StaticImage.FILTER_SEPARATOR,
-                messages.formFilterConditionViewAnd(), true) {
+                messages.formFilterConditionViewAnd()) {
             @Override
             public ClickHandler getClickHandler() {
                 return event -> {
@@ -222,8 +225,8 @@ public class GFilterConditionView extends FlexPanel implements HasNativeSID {
                 };
             }
         };
-        junctionView.addStyleName("filter-button");
-        junctionView.addStyleName(MainFrame.useTextAsFilterSeparator ? "filter-separator-button-text" : "filter-separator-button");
+        GwtClientUtils.addClassName(junctionView, "filter-button");
+        GwtClientUtils.addClassName(junctionView, MainFrame.useTextAsFilterSeparator ? "filter-separator-button-text" : "filter-separator-button");
         junctionView.showBackground(!condition.junction);
         rightPanel.addCentered(junctionView);
     }
@@ -360,8 +363,10 @@ public class GFilterConditionView extends FlexPanel implements HasNativeSID {
     }
 
     public boolean clearValueView() {
-        if(valueView.cell.getValue() == null)
+        if (valueView.cell.getValue() == null) {
+            setApplied(false);
             return false;
+        }
 
         valueView.cell.updateValue(null);
         setApplied(allowNull);
@@ -378,8 +383,13 @@ public class GFilterConditionView extends FlexPanel implements HasNativeSID {
         compareView.hidePopup();
         uiHandler.removeCondition(condition);
     }
+    
+    public boolean isApplied() {
+        return applied;
+    }
 
     public void setApplied(boolean applied) {
+        this.applied = applied;
         valueView.setApplied(applied);
     }
 

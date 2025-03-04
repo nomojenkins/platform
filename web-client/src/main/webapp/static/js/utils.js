@@ -3,6 +3,22 @@ var createPlainObject = function () {
     return {};
 };
 
+function createPlainDateMillis(millis) {
+    return new Date(millis);
+}
+function createPlainDateCurrent() {
+    return new Date();
+}
+function createPlainDate(year, month, date) {
+    return new Date(year, month, date);
+}
+function createPlainDateTime(year, month, date, hours, minutes, seconds) {
+    return new Date(year, month, date, hours, minutes, seconds);
+}
+function createPlainDateTimeUTC(year, month, date, hours, minutes, seconds) {
+    return new Date(Date.UTC(year, month, date, hours, minutes, seconds));
+}
+
 //this var is needed to localize daterangepicker, because GWT does not accept dynamic keys in arrays
 var getRanges = function (wnd, rangeIntervalToday, rangeIntervalYesterday, rangeLast7Days, rangeLast30Days, rangeThisMonth, rangeToMonthEnd,
                           rangePreviousMonth, rangeMonthStartToCurrentDate, rangeThisYear, rangeToYearEnd, clear, preDefinedDateRangesNames) {
@@ -458,4 +474,67 @@ function setGlobalClassName(set, className) {
         root.classList.add(className);
     else
         root.classList.remove(className);
+}
+
+// input with drop down
+function handleInputKeyEvent(isOpen, controller, e, keyDown) {
+    if(isOpen) { // is editing
+        if(controller.isEditInputKeyEvent(e, true) || (keyDown && (e.key === 'Enter' || e.key === 'Escape')))
+            e.stopPropagation()
+    } else {
+        if(controller.isRenderInputKeyEvent(e, true))
+            e.stopPropagation();
+    }
+}
+function handleDropdownKeyEvent(isOpen, e, keyDown) {
+    if(isOpen) { // is editing
+        if(keyDown && (e.keyCode === 38 || e.keyCode === 40 || e.key === 'Enter' || e.key === 'Escape'))
+            e.stopPropagation()
+    }
+    if(e.keyCode === 32)
+        e.stopPropagation();
+}
+
+function handleOptionKeyEvent(isButton, e, keyDown, isInGrid) {
+    if (keyDown && e.shiftKey && isInGrid && ((isButton && (e.keyCode === 39 || e.keyCode === 37)) || (e.keyCode === 40 || e.keyCode === 38)))
+        e.stopPropagation();
+}
+
+// is necessary to allow collapsible-text to be shown in exel theme
+function addShowCollapsedContainerEvent(parent, toggleElementSelector, containerElementSelector, collapsibleClass) {
+    let element = $(parent).find(toggleElementSelector);
+    if (element.length > 0) {
+        element.css('cursor', 'pointer');
+        element.css('text-decoration', 'underline');
+        element.on('click', function () {
+            $(parent).find(containerElementSelector).each(function () {
+                $(this).toggleClass(collapsibleClass);
+            })
+        })
+    }
+}
+
+function mergeObjects(defaultObj, obj) {
+        return {...defaultObj, ...obj};
+}
+
+function deepEquals(obj1, obj2) {
+    if (obj1 === obj2)
+        return true;
+
+    if (typeof obj1 !== "object" || typeof obj2 !== "object" || obj1 === null || obj2 === null)
+        return false;
+
+    const keys1 = Object.keys(obj1);
+    const keys2 = Object.keys(obj2);
+
+    if (keys1.length !== keys2.length)
+        return false;
+
+    for (let key of keys1) {
+        if (!keys2.includes(key) || !deepEquals(obj1[key], obj2[key]))
+            return false;
+    }
+
+    return true;
 }

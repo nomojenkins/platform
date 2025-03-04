@@ -4,10 +4,7 @@ import lsfusion.base.Pair;
 import lsfusion.base.col.ListFact;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
-import lsfusion.base.col.interfaces.immutable.ImMap;
-import lsfusion.base.col.interfaces.immutable.ImOrderSet;
-import lsfusion.base.col.interfaces.immutable.ImRevMap;
-import lsfusion.base.col.interfaces.immutable.ImSet;
+import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.*;
 import lsfusion.base.identity.IdentityObject;
 import lsfusion.interop.form.object.table.grid.ListViewType;
@@ -21,7 +18,6 @@ import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.stat.Stat;
 import lsfusion.server.data.stat.StatType;
 import lsfusion.server.data.where.Where;
-import lsfusion.server.logics.action.session.LocalNestedType;
 import lsfusion.server.logics.action.session.change.modifier.Modifier;
 import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.user.ConcreteCustomClass;
@@ -48,7 +44,6 @@ import lsfusion.server.logics.property.implement.PropertyRevImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.admin.Settings;
 import lsfusion.server.physics.dev.debug.DebugInfo;
-import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.sql.SQLException;
 import java.util.function.Function;
@@ -74,6 +69,8 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
     public Group propertyGroup; // used for integration (export / import)
 
     private Pair<Integer, Integer> scriptIndex;
+
+    public boolean enableManualUpdate;
 
     private String integrationSID;
     private boolean integrationKey; // key (key in JSON, tag in XML, fields in plain formats) or index (array in JSON, multiple object name tags in xml, order in plain formats)
@@ -379,7 +376,10 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
             mList.add(filter.getImplement(mapObjects));
         for(ContextFilterEntity<?, P, ObjectEntity> contextFilter : contextFilters)
             mList.add(contextFilter.getWhereProperty(mapValues, mapObjects));
-        return PropertyFact.createAnd(mList.immutableList().getCol());
+        ImList<PropertyMapImplement<?, T>> list = mList.immutableList();
+        if(list.isEmpty())
+            return null;
+        return PropertyFact.createAnd(list.getCol());
     }
 
     private static ImMap<ObjectEntity, ValueClass> getGridClasses(ImSet<ObjectEntity> objects) {
@@ -402,7 +402,11 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
         return InputFilterEntity.and(getFilterInputFilterEntity(filters, mapObjects), getClassInputFilterEntity());
     }
     public <T extends PropertyInterface, P extends PropertyInterface> PropertyMapImplement<?, T> getWhereProperty(ImSet<FilterEntity> filters, ImSet<ContextFilterEntity<?, P, ObjectEntity>> contextFilters, ImRevMap<P, T> mapValues, ImRevMap<ObjectEntity, T> mapObjects) {
-        return PropertyFact.createAnd(getFilterWhereProperty(filters, contextFilters, mapValues, mapObjects), getClassWhereProperty(mapObjects));
+        PropertyMapImplement<?, T> classWhereProperty = getClassWhereProperty(mapObjects);
+        PropertyMapImplement<?, T> filterWhereProperty = getFilterWhereProperty(filters, contextFilters, mapValues, mapObjects);
+        if(filterWhereProperty == null)
+            return classWhereProperty;
+        return PropertyFact.createAnd(filterWhereProperty, classWhereProperty);
     }
 
     // hack where ImMap used (it does not support null keys)

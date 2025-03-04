@@ -1,10 +1,12 @@
 package lsfusion.gwt.client.form.property.panel.view;
 
 import com.google.gwt.dom.client.Element;
+import com.google.gwt.event.dom.client.ContextMenuEvent;
 import com.google.gwt.event.dom.client.MouseDownEvent;
 import com.google.gwt.user.client.ui.Widget;
 import lsfusion.gwt.client.base.*;
 import lsfusion.gwt.client.base.view.GFlexAlignment;
+import lsfusion.gwt.client.base.view.ResizableComplexPanel;
 import lsfusion.gwt.client.base.view.SizedFlexPanel;
 import lsfusion.gwt.client.base.view.SizedWidget;
 import lsfusion.gwt.client.form.controller.GFormController;
@@ -13,9 +15,11 @@ import lsfusion.gwt.client.form.design.view.CaptionWidget;
 import lsfusion.gwt.client.form.design.view.ComponentViewWidget;
 import lsfusion.gwt.client.form.design.view.GFormLayout;
 import lsfusion.gwt.client.form.design.view.InlineComponentViewWidget;
+import lsfusion.gwt.client.form.event.GMouseStroke;
 import lsfusion.gwt.client.form.object.GGroupObjectValue;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
 import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.cell.view.RenderContext;
 
 public class PropertyPanelRenderer extends PanelRenderer {
 
@@ -30,7 +34,7 @@ public class PropertyPanelRenderer extends PanelRenderer {
 
         SizedWidget valueWidget = value.getSizedWidget(false);
 
-        setStyles(valueWidget.widget.getElement(), property.isEditableNotNull(), property.hasChangeAction);
+        setStyles(valueWidget.widget.getElement(), property.isEditableNotNull((RenderContext) value), property.hasChangeAction);
 
         sizedView = initCaption(valueWidget, property, captionContainer);
 
@@ -39,9 +43,9 @@ public class PropertyPanelRenderer extends PanelRenderer {
 
     public static void setStyles(Element panelElement, boolean notNull, boolean hasChangeAction) {
         if (notNull)
-            panelElement.addClassName("property-not-null");
+            GwtClientUtils.addClassName(panelElement, "property-not-null");
         else if(hasChangeAction)
-            panelElement.addClassName("property-has-change");
+            GwtClientUtils.addClassName(panelElement, "property-has-change");
     }
 
     @Override
@@ -73,12 +77,22 @@ public class PropertyPanelRenderer extends PanelRenderer {
         if(property.caption != null) {
             label = GFormLayout.createLabelCaptionWidget();
             BaseImage.initImageText(label, null, property.appImage, property.getCaptionHtmlOrTextType());
-            label.addStyleName("panel-property-label");
+            GwtClientUtils.addClassName(label, "panel-property-label");
 
             label.getElement().setAttribute("for", globalID);
+            Element valueElement = value.getElement();
+
+            // display context menu when right-clicking on a label item. It is to allow to show context menu when checkboxes are displayed by buttons
             label.addDomHandler(event -> {
-                GwtClientUtils.fireOnMouseDown(value.getElement());
-                GwtClientUtils.stopPropagation(event.getNativeEvent()); // need this because otherwise default handler will lead to the blur event
+                GwtClientUtils.fireOnContextmenu(valueElement);
+                GwtClientUtils.stopPropagation(event.getNativeEvent());
+            }, ContextMenuEvent.getType());
+
+            label.addDomHandler(event -> {
+                if (GMouseStroke.isChangeEvent(event.getNativeEvent())) {// check that this is the left mouse button, because the top ContextMenuEvent should trigger on the right button.
+                    GwtClientUtils.fireOnMouseDown(valueElement);
+                    GwtClientUtils.stopPropagation(event.getNativeEvent()); // need this because otherwise default handler will lead to the blur event
+                }
             }, MouseDownEvent.getType());
 
             // mostly it is needed to handle margins / paddings / layouting but we do it ourselves
@@ -106,7 +120,7 @@ public class PropertyPanelRenderer extends PanelRenderer {
         if(property.comment != null) {
             comment = GFormLayout.createLabelCaptionWidget();
             GwtClientUtils.initCaptionHtmlOrText(comment.getElement(), property.panelCommentVertical ? CaptionHtmlOrTextType.COMMENT_VERT : CaptionHtmlOrTextType.COMMENT_HORZ);
-            comment.addStyleName("panel-comment");
+            GwtClientUtils.addClassName(comment, "panel-comment");
 
             //            setCommentText(property.comment);
             sizedComment = new SizedWidget(comment, property.getCaptionWidth(), property.getCaptionHeight());
@@ -152,14 +166,23 @@ public class PropertyPanelRenderer extends PanelRenderer {
         if(inline)
             return componentViewWidget;
 
-        SizedFlexPanel panel = new SizedFlexPanel(panelVertical);
-        panel.transparentResize = true;
-        panel.addStyleName("panel-container");
-        componentViewWidget.add(panel, 0);
-        // mostly it is needed to handle margins / paddings / layouting but we do it ourselves
-//        cellRenderer.renderPanelContainer(panel);
+        Widget widget;
+        if (property.panelCustom) {
+            ResizableComplexPanel panel = new ResizableComplexPanel();
+            componentViewWidget.add(panel, 0);
+            GwtClientUtils.addClassName(panel, "panel-custom");
+            widget = panel;
+        } else {
+            SizedFlexPanel panel = new SizedFlexPanel(panelVertical);
+            panel.transparentResize = true;
+            GwtClientUtils.addClassName(panel, "panel-container");
+            componentViewWidget.add(panel, 0);
+            // mostly it is needed to handle margins / paddings / layouting but we do it ourselves
+//          cellRenderer.renderPanelContainer(panel);
+            widget = panel;
+        }
 
-        return new SizedWidget(panel).view;
+        return new SizedWidget(widget).view;
     }
 
     @Override
@@ -209,6 +232,6 @@ public class PropertyPanelRenderer extends PanelRenderer {
             return;
         }
 
-        comment.getElement().addClassName(classes);
+        GwtClientUtils.addClassName(comment.getElement(), classes);
     }
 }

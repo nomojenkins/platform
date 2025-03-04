@@ -54,6 +54,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 import static java.lang.Math.min;
+import static lsfusion.gwt.client.view.MainFrame.v5;
 
 public abstract class DataGrid<T> implements TableComponent, ColorThemeChangeListener, HasMaxPreferredSize {
 
@@ -189,7 +190,10 @@ public abstract class DataGrid<T> implements TableComponent, ColorThemeChangeLis
 
     private void updateScrolledStateHorizontal() {
         int horizontalScrollPosition = tableContainer.getHorizontalScrollPosition();
-        tableWidget.setStyleName("scrolled-left", horizontalScrollPosition > MainFrame.mobileAdjustment);
+        if(horizontalScrollPosition > MainFrame.mobileAdjustment)
+            GwtClientUtils.addClassName(tableWidget, "scrolled-left");
+        else
+            GwtClientUtils.removeClassName(tableWidget, "scrolled-left");
 
         if (horizontalScrollPosition != latestHorizontalScrollPosition) {
             updateStickyColumnsState(horizontalScrollPosition);
@@ -197,10 +201,34 @@ public abstract class DataGrid<T> implements TableComponent, ColorThemeChangeLis
             latestHorizontalScrollPosition = horizontalScrollPosition;
         }
     }
+    private int renderedFirstVisibleRow = -1;
     private void updateScrolledStateVertical() {
         int verticalScrollPosition = tableContainer.getVerticalScrollPosition();
-        tableWidget.setStyleName("scrolled-down", verticalScrollPosition > MainFrame.mobileAdjustment);
-        tableWidget.setStyleName("scrolled-up", verticalScrollPosition < tableContainer.getScrollHeight() - tableContainer.getClientHeight() - MainFrame.mobileAdjustment);
+        if (verticalScrollPosition > MainFrame.mobileAdjustment)
+            GwtClientUtils.addClassName(tableWidget, "scrolled-down");
+        else
+            GwtClientUtils.removeClassName(tableWidget, "scrolled-down");
+        if (verticalScrollPosition < tableContainer.getScrollHeight() - tableContainer.getClientHeight() - MainFrame.mobileAdjustment)
+            GwtClientUtils.addClassName(tableWidget, "scrolled-up");
+        else
+            GwtClientUtils.removeClassName(tableWidget, "scrolled-up");
+
+        if(highlightDuplicateValue()) {
+            int firstVisibleRow = getFirstVisibleRow(verticalScrollPosition + getHeaderHeight() + 1, null, 0);
+            if (firstVisibleRow != renderedFirstVisibleRow) {
+                if (firstVisibleRow != -1)
+                    GwtClientUtils.addClassName(getChildElement(firstVisibleRow), "first-visible-row");
+
+                if (renderedFirstVisibleRow != -1)
+                    GwtClientUtils.removeClassName(getChildElement(renderedFirstVisibleRow), "first-visible-row");
+
+                renderedFirstVisibleRow = firstVisibleRow;
+            }
+        }
+    }
+
+    protected boolean highlightDuplicateValue() {
+        return false;
     }
     
     private void updateStickyColumnsState(int horizontalScrollPosition) {
@@ -545,12 +573,13 @@ public abstract class DataGrid<T> implements TableComponent, ColorThemeChangeLis
                 footer.onBrowserEvent(footerParent, event);
         } else {
             if (column != null) {
-                assert rowIndexHolder == null || getRows().contains(rowIndexHolder);
+                assert rowIndexHolder == null || getRows().contains((T) rowIndexHolder);
                 RowIndexHolder rowValue;
                 try {
                     rowValue = (RowIndexHolder) getRowValue(row);
                 } catch (IndexOutOfBoundsException e) {
-                    throw new RuntimeException("INCORRECT ROW " + row + " " + event.getType() + " " + (this instanceof GTreeTable) + " " + target + " " + (target == getTableDataFocusElement()) + " " + getGridInfo() + " " + (rowIndexHolder == null ? "null" : getRows().indexOf(rowIndexHolder)) + " " + getRows().size() + " " + RootPanel.getBodyElement().isOrHasChild(target));
+                    Object rowData = (rowIndexHolder == null ? "null" : getRows().indexOf((T) rowIndexHolder));
+                    throw new RuntimeException("INCORRECT ROW " + row + " " + event.getType() + " " + (this instanceof GTreeTable) + " " + target + " " + (target == getTableDataFocusElement()) + " " + getGridInfo() + " " + rowData + " " + getRows().size() + " " + RootPanel.getBodyElement().isOrHasChild(target));
                 }
                 onBrowserEvent(new Cell(row, getColumnIndex(column), column, rowValue), eventHandler, column, columnParent);
             }
@@ -918,9 +947,9 @@ public abstract class DataGrid<T> implements TableComponent, ColorThemeChangeLis
     public static void updateVerticalScroll(boolean hasVerticalScroller, Element tableElement) {
         boolean setMargin = !hasVerticalScroller;
         if(setMargin)
-            tableElement.addClassName("no-vertical-scroll");
+            GwtClientUtils.addClassName(tableElement, "no-vertical-scroll");
         else
-            tableElement.removeClassName("no-vertical-scroll");
+            GwtClientUtils.removeClassName(tableElement, "no-vertical-scroll");
     }
 
     private TableRowElement getRowElementNoFlush(int row) {
@@ -1220,7 +1249,7 @@ public abstract class DataGrid<T> implements TableComponent, ColorThemeChangeLis
                 Element cell = tr.getCells().getItem(stickyColumns.get(i));
                 double borderLeftWidth = GwtClientUtils.getDoubleBorderLeftWidth(cell);
                 double borderRightWidth = GwtClientUtils.getDoubleBorderRightWidth(cell);
-                double cellWidth = GwtClientUtils.getDoubleOffsetWidth(cell) - borderLeftWidth - borderRightWidth;
+                double cellWidth = GwtClientUtils.getDoubleOffsetWidth(cell);
                 //protect from too much sticky columns
                 double nextLeft = left + cellWidth;
                 // assert that nextLeft is Fixed PX, so the resize size is not null
@@ -1508,7 +1537,7 @@ public abstract class DataGrid<T> implements TableComponent, ColorThemeChangeLis
 
 
     private boolean isStickyCell(TableCellElement cell) {
-        return cell.hasClassName("dataGridStickyCell") && !cell.hasClassName("dataGridStickyOverflow");
+        return cell.hasClassName("data-grid-sticky-cell") && !cell.hasClassName("data-grid-sticky-overflow");
     }
 
     private void setFocusedCellStyles(int row, int column, NodeList<TableRowElement> rows, TableRowElement headerRow, boolean focused) {
@@ -1552,41 +1581,41 @@ public abstract class DataGrid<T> implements TableComponent, ColorThemeChangeLis
 
     private void setFocusedCell(Element element, boolean focused) {
         if (focused) {
-            element.addClassName("focused-cell");
+            GwtClientUtils.addClassName(element, "focused-cell");
         } else {
-            element.removeClassName("focused-cell");
+            GwtClientUtils.removeClassName(element, "focused-cell");
         }
     }
 
     private void setTableActive(Element element, boolean active) {
         if (active) {
-            element.addClassName("table-active");
+            GwtClientUtils.addClassName(element, "table-active");
         } else {
-            element.removeClassName("table-active");
+            GwtClientUtils.removeClassName(element, "table-active");
         }
     }
 
     private void setFocusedCellBottomBorder(TableCellElement td, boolean focused) {
         if (focused) {
-            td.addClassName("focusedCellBottomBorder");
+            GwtClientUtils.addClassName(td, "focused-cell-bottom-border", "focusedCellBottomBorder", v5);
         } else {
-            td.removeClassName("focusedCellBottomBorder");
+            GwtClientUtils.removeClassName(td, "focused-cell-bottom-border", "focusedCellBottomBorder", v5);
         }
     }
 
     private void setFocusedCellRightBorder(TableCellElement td, boolean focused) {
         if (focused) {
-            td.addClassName("focusedCellRightBorder");
+            GwtClientUtils.addClassName(td, "focused-cell-right-border", "focusedCellRightBorder", v5);
         } else {
-            td.removeClassName("focusedCellRightBorder");
+            GwtClientUtils.removeClassName(td, "focused-cell-right-border", "focusedCellRightBorder", v5);
         }
     }
 
     private void setLeftNeighbourRightBorder(TableCellElement td, boolean focused) {
         if (focused) {
-            td.addClassName("leftNeighbourRightBorder");
+            GwtClientUtils.addClassName(td, "left-neighbour-right-border", "leftNeighbourRightBorder", v5);
         } else {
-            td.removeClassName("leftNeighbourRightBorder");
+            GwtClientUtils.removeClassName(td, "left-neighbour-right-border", "leftNeighbourRightBorder", v5);
         }
     }
 
@@ -1631,7 +1660,7 @@ public abstract class DataGrid<T> implements TableComponent, ColorThemeChangeLis
             Element sizeElement = colElement; // the problem is that table-loyout fixed doesn't care about the cell content, so it's not possible to do the sizing for the inner div / input components
 
             FlexPanel.setGridWidth(sizeElement, getColumnWidth(i).getString());
-            sizeElement.addClassName("prop-size-value");
+            GwtClientUtils.addClassName(sizeElement, "prop-size-value");
 
             if(isColumnFlex(i)) {
                 double columnFlexPerc = getColumnFlexPerc(i);
@@ -1766,25 +1795,25 @@ public abstract class DataGrid<T> implements TableComponent, ColorThemeChangeLis
         public TableWidget() {
             tableElement = Document.get().createTableElement();
 
-            tableElement.addClassName("table");
-            tableElement.addClassName("lsf-table");
+            GwtClientUtils.addClassName(tableElement, "table");
+            GwtClientUtils.addClassName(tableElement, "lsf-table");
             if (noHeaders) {
-                tableElement.addClassName("empty-header");
+                GwtClientUtils.addClassName(tableElement, "empty-header");
             }
             if (noFooters) {
-                tableElement.addClassName("empty-footer");
+                GwtClientUtils.addClassName(tableElement, "empty-footer");
             }
 
             headerElement = tableElement.createTHead();
-            headerElement.setClassName("dataGridHeader");
+            GwtClientUtils.addClassName(headerElement, "data-grid-header", "dataGridHeader", v5);
 
             colRowElement = headerElement.insertRow(-1);
 
             bodyElement = GwtClientUtils.createTBody(tableElement);
-            bodyElement.setClassName("dataGridBody");
+            GwtClientUtils.addClassName(bodyElement, "data-grid-body", "dataGridBody", v5);
 
             footerElement = tableElement.createTFoot();
-            footerElement.setClassName("dataGridFooter");
+            GwtClientUtils.addClassName(footerElement, "data-grid-footer", "dataGridFooter", v5);
 
             setElement(tableElement);
         }
@@ -1951,19 +1980,19 @@ public abstract class DataGrid<T> implements TableComponent, ColorThemeChangeLis
 
     public void initArrow(Element parent, boolean bottom) {
         Element button = GwtClientUtils.createFocusElement("button");
-        button.addClassName("btn");
-        button.addClassName("btn-light");
-        button.addClassName("btn-sm");
-        button.addClassName("arrow");
+        GwtClientUtils.addClassName(button, "btn");
+        GwtClientUtils.addClassName(button, "btn-light");
+        GwtClientUtils.addClassName(button, "btn-sm");
+        GwtClientUtils.addClassName(button, "arrow");
         button.appendChild(bottom ? StaticImage.CHEVRON_DOWN.createImage() : StaticImage.CHEVRON_UP.createImage());
         GwtClientUtils.setOnClick(button, event -> scrollToEnd(bottom));
 
         Element arrowTH = Document.get().createElement("th");
-        arrowTH.addClassName("arrow-th");
-        arrowTH.addClassName(bottom ? "bottom-arrow" : "top-arrow");
+        GwtClientUtils.addClassName(arrowTH, "arrow-th");
+        GwtClientUtils.addClassName(arrowTH, bottom ? "bottom-arrow" : "top-arrow");
 
         Element arrowContainer = Document.get().createElement("div");
-        arrowContainer.addClassName("arrow-container");
+        GwtClientUtils.addClassName(arrowContainer, "arrow-container");
         arrowContainer.appendChild(button);
 
         arrowTH.appendChild(arrowContainer);

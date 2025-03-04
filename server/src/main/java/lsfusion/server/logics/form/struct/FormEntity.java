@@ -266,6 +266,10 @@ public class FormEntity implements FormSelector<ObjectEntity> {
     public ImMap<GroupObjectEntity, ImSet<PropertyDrawEntity>> getPivotMeasureProps() {
         return getPivotMeasuresList().toOrderSet().getSet().group(key -> key.getToDraw(this));
     }
+    @IdentityLazy
+    public ImSet<PropertyDrawEntity> getUserPrefsHiddenProperties() {
+        return getPropertyDrawsList().getSet().filterFn(property -> property.hide || property.remove);
+    }
 
     public boolean localAsync = false;
 
@@ -736,7 +740,7 @@ public class FormEntity implements FormSelector<ObjectEntity> {
 
     @IdentityLazy
     public ImMap<GroupObjectEntity, ImOrderMap<OrderEntity, Boolean>> getGroupOrdersList(final ImSet<GroupObjectEntity> excludeGroupObjects) {
-        return BaseUtils.immutableCast(getDefaultOrdersList().mapOrderKeyValues((Function<PropertyDrawEntity<?>, OrderEntity<?>>) PropertyDrawEntity::getOrder, value -> !value).mergeOrder(getFixedOrdersList()).groupOrder(key -> {
+        return BaseUtils.immutableCast(getDefaultOrdersList().mapOrderKeyValues((Function<PropertyDrawEntity<?>, OrderEntity<?>>) PropertyDrawEntity::getOrder, value -> value).mergeOrder(getFixedOrdersList()).groupOrder(key -> {
             GroupObjectEntity groupObject = key.getApplyObject(FormEntity.this, excludeGroupObjects);
             if(groupObject == null)
                 return GroupObjectEntity.NULL;
@@ -1494,18 +1498,18 @@ public class FormEntity implements FormSelector<ObjectEntity> {
             richDesign.addFilter(property, version);
     }
 
-    public void addDefaultOrder(PropertyDrawEntity property, boolean ascending, Version version) {
-        defaultOrders.add(property, ascending, version);
+    public void addDefaultOrder(PropertyDrawEntity property, boolean descending, Version version) {
+        defaultOrders.add(property, descending, version);
     }
 
-    public void addDefaultOrderFirst(PropertyDrawEntity property, boolean ascending, Version version) {
-        defaultOrders.addFirst(property, ascending, version);
+    public void addDefaultOrderFirst(PropertyDrawEntity property, boolean descending, Version version) {
+        defaultOrders.addFirst(property, descending, version);
     }
 
-    public void addDefaultOrderView(PropertyDrawEntity property, boolean ascending, Version version) {
+    public void addDefaultOrderView(PropertyDrawEntity property, boolean descending, Version version) {
         FormView richDesign = getNFRichDesign(version);
         if(richDesign !=null)
-            richDesign.addDefaultOrder(property, ascending, version);
+            richDesign.addDefaultOrder(property, descending, version);
     }
 
     public void setPageSize(int pageSize) {
@@ -1678,7 +1682,7 @@ public class FormEntity implements FormSelector<ObjectEntity> {
     @ManualLazy
     public FormInstanceContext getGlobalContext() {
         if(context == null)
-            context = new FormInstanceContext(this, getRichDesign(), null, false, false, false, false, null, null);
+            context = new FormInstanceContext(this, getRichDesign(), null, false, false, false, false, false, null, null);
         return context;
     }
 

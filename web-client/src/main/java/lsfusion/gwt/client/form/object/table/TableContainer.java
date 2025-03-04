@@ -7,6 +7,7 @@ import com.google.gwt.event.dom.client.ScrollEvent;
 import com.google.gwt.event.dom.client.TouchMoveEvent;
 import com.google.gwt.event.shared.EventHandler;
 import com.google.gwt.user.client.Event;
+import com.google.gwt.user.client.ui.Widget;
 import lsfusion.gwt.client.base.FocusUtils;
 import lsfusion.gwt.client.base.GwtClientUtils;
 import lsfusion.gwt.client.base.Result;
@@ -17,7 +18,10 @@ import lsfusion.gwt.client.form.controller.GFormController;
 import lsfusion.gwt.client.form.design.view.GFormLayout;
 import lsfusion.gwt.client.form.object.table.grid.GGridProperty;
 import lsfusion.gwt.client.form.object.table.grid.view.GCustom;
+import lsfusion.gwt.client.form.object.table.grid.view.GStateTableView;
 import lsfusion.gwt.client.form.property.cell.view.CellRenderer;
+
+import static lsfusion.gwt.client.view.MainFrame.v5;
 
 public class TableContainer extends ResizableSimplePanel implements HasMaxPreferredSize {
 
@@ -25,7 +29,7 @@ public class TableContainer extends ResizableSimplePanel implements HasMaxPrefer
     private TableComponent tableComponent;
 
     public TableContainer(GFormController form) {
-        setStyleName("tableContainer");
+       GwtClientUtils.addClassName(this, "table-container", "tableContainer", v5);
 
         this.form = form;
         getFocusElement().setTabIndex(0);
@@ -103,16 +107,20 @@ public class TableContainer extends ResizableSimplePanel implements HasMaxPrefer
 
     public void changeTableComponent(TableComponent tableComponent, boolean boxed) {
         this.tableComponent = tableComponent;
-        setPercentMain(tableComponent.getWidget());
+        Widget widget = tableComponent.getWidget();
+        if(tableComponent instanceof GStateTableView)
+            setPercentMain(widget);
+        else
+            setWidget(widget);
 
         addHandler(tableComponent.getScrollHandler(), ScrollEvent.getType(), Event.ONSCROLL);
         addHandler(tableComponent.getMouseWheelScrollHandler(), MouseWheelEvent.getType(), Event.ONMOUSEWHEEL);
         addHandler(tableComponent.getTouchMoveHandler(), TouchMoveEvent.getType(), Event.ONTOUCHMOVE);
 
         if(boxed)
-            addStyleName("tableContainerBoxed");
+            GwtClientUtils.addClassName(this, "table-container-boxed", "tableContainerBoxed", v5);
         else
-            removeStyleName("tableContainerBoxed");
+            GwtClientUtils.removeClassName(this, "table-container-boxed", "tableContainerBoxed", v5);
 
         tableComponent.onActivate();
     }
@@ -138,7 +146,7 @@ public class TableContainer extends ResizableSimplePanel implements HasMaxPrefer
         if(isFocused)
             return;
         isFocused = true;
-        addStyleName("tableContainerFocused");
+       GwtClientUtils.addClassName(this, "table-container-focused", "tableContainerFocused", v5);
         focusedChanged(target);
     }
 
@@ -152,7 +160,7 @@ public class TableContainer extends ResizableSimplePanel implements HasMaxPrefer
             if (focusElement != null && focusElement != CellRenderer.NULL && focusElement != target) { // last check - optimization
                 FocusUtils.Reason reason = FocusUtils.getFocusReason(target);
                 if (reason == null)
-                    reason = FocusUtils.Reason.OTHER;
+                    reason = FocusUtils.Reason.FOCUSNAVIGATE;
                 FocusUtils.focus((Element) focusElement, reason);
             }
         }
@@ -162,7 +170,7 @@ public class TableContainer extends ResizableSimplePanel implements HasMaxPrefer
         if(!isFocused)
             return;
         isFocused = false;
-        removeStyleName("tableContainerFocused");
+        GwtClientUtils.removeClassName(this, "table-container-focused", "tableContainerFocused", v5);
         focusedChanged(target);
     }
 

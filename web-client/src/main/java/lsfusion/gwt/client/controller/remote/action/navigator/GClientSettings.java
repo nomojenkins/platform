@@ -14,6 +14,7 @@ public class GClientSettings implements Serializable, IsSerializable {
     public boolean showDetailedInfo;
     public boolean autoReconnectOnConnectionLost;
     public int showDetailedInfoDelay;
+    public Boolean mobileMode;
     public boolean suppressOnFocusChange;
     public boolean forbidDuplicateForms;
     public boolean pivotOnlySelectedColumn;
@@ -42,23 +43,27 @@ public class GClientSettings implements Serializable, IsSerializable {
 
     public boolean jasperReportsIgnorePageMargins;
 
+    public double cssBackwardCompatibilityLevel;
+
     @SuppressWarnings("unused")
     public GClientSettings() {
     }
 
-    public GClientSettings(long busyDialogTimeout, boolean devMode, String projectLSFDir, boolean showDetailedInfo, int showDetailedInfoDelay, boolean suppressOnFocusChange,
+    public GClientSettings(long busyDialogTimeout, boolean devMode, String projectLSFDir, boolean showDetailedInfo, int showDetailedInfoDelay,
+                           Boolean mobileMode, boolean suppressOnFocusChange,
                            boolean autoReconnectOnConnectionLost, boolean forbidDuplicateForms, boolean pivotOnlySelectedColumn,
                            String matchSearchSeparator, GColorTheme colorTheme, boolean useBootstrap, String size, Map<String, String> versionedColorThemesCss,
                            GColorPreferences colorPreferences, String language, String dateFormat, String timeFormat, Integer twoDigitYearStart, String staticImagesURL,
                            String[] preDefinedDateRangesNames, boolean useTextAsFilterSeparator, boolean verticalNavbar, boolean userFiltersManualApplyMode,
                            boolean disableActionsIfReadonly, boolean enableShowingRecentlyLogMessages, String pushNotificationPublicKey,
-                           double maxStickyLeft, boolean jasperReportsIgnorePageMargins) {
+                           double maxStickyLeft, boolean jasperReportsIgnorePageMargins, double cssBackwardCompatibilityLevel) {
         this.busyDialogTimeout = busyDialogTimeout;
         this.devMode = devMode;
         this.projectLSFDir = projectLSFDir;
         this.showDetailedInfo = showDetailedInfo;
         this.autoReconnectOnConnectionLost = autoReconnectOnConnectionLost;
         this.showDetailedInfoDelay = showDetailedInfoDelay;
+        this.mobileMode = mobileMode;
         this.suppressOnFocusChange = suppressOnFocusChange;
         this.forbidDuplicateForms = forbidDuplicateForms;
         this.pivotOnlySelectedColumn = pivotOnlySelectedColumn;
@@ -82,5 +87,6 @@ public class GClientSettings implements Serializable, IsSerializable {
         this.pushNotificationPublicKey = pushNotificationPublicKey;
         this.maxStickyLeft = maxStickyLeft;
         this.jasperReportsIgnorePageMargins = jasperReportsIgnorePageMargins;
+        this.cssBackwardCompatibilityLevel = cssBackwardCompatibilityLevel;
     }
 }

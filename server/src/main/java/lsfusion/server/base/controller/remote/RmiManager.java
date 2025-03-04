@@ -4,10 +4,15 @@ import com.google.common.base.Throwables;
 import lsfusion.base.SystemUtils;
 import lsfusion.base.col.lru.LRUUtil;
 import lsfusion.base.col.lru.LRUWSVSMap;
+import lsfusion.base.file.FileData;
+import lsfusion.base.file.FileStringWithFiles;
 import lsfusion.base.file.StringWithFiles;
 import lsfusion.base.remote.RMIUtils;
+import lsfusion.interop.connection.ComputerInfo;
+import lsfusion.interop.connection.ConnectionInfo;
+import lsfusion.interop.connection.UserInfo;
 import lsfusion.interop.logics.remote.RemoteClientInterface;
-import lsfusion.interop.session.ConvertFileValue;
+import lsfusion.interop.session.ExternalRequest;
 import lsfusion.interop.session.ExternalUtils;
 import lsfusion.interop.session.SessionInfo;
 import lsfusion.server.base.AppServerImage;
@@ -38,7 +43,7 @@ import java.util.List;
 import static lsfusion.server.physics.admin.log.ServerLoggers.startLog;
 import static lsfusion.server.physics.admin.log.ServerLoggers.startLogError;
 
-public class RmiManager extends LogicsManager implements InitializingBean, ConvertFileValue {
+public class RmiManager extends LogicsManager implements InitializingBean {
 
     @Override
     protected BusinessLogics getBusinessLogics() {
@@ -202,7 +207,7 @@ public class RmiManager extends LogicsManager implements InitializingBean, Conve
 //        try {
 //            registry.list();
 //        } catch (RemoteException e) {
-        registry = RMIUtils.createRmiRegistry(port, ZipServerSocketFactory.getInstance());
+        registry = RMIUtils.createRmiRegistry(port);
 //        }
     }
 
@@ -272,41 +277,49 @@ public class RmiManager extends LogicsManager implements InitializingBean, Conve
     }
 
     private final static LRUWSVSMap<RemoteClientInterface, Serializable, String> cachedConversions = new LRUWSVSMap<>(LRUUtil.G3);
-    private final static SessionInfo sessionInfo = new SessionInfo(SystemUtils.getLocalHostName(), SystemUtils.getLocalHostIP(), null, null, null, null, null, null);
+    private final static ConnectionInfo connectionInfo = new ConnectionInfo(new ComputerInfo(SystemUtils.getLocalHostName(), SystemUtils.getLocalHostIP()), UserInfo.NULL);
 
-    public Object convertFileValue(Object value) {
-        if (value instanceof StringWithFiles) {
-            StringWithFiles stringWithFiles = (StringWithFiles) value;
-            return executeOnSomeClient(remoteClient -> {
-                Serializable[] files = stringWithFiles.files;
-                String[] convertedFiles = new String[files.length];
-
-                List<Serializable> readFiles = new ArrayList<>();
-                List<Integer> readIndices = new ArrayList<>();
-
-                for (int i = 0, filesLength = files.length; i < filesLength; i++) {
-                    Serializable file = files[i];
-                    String cachedConversion = cachedConversions.get(remoteClient, file);
-                    if (cachedConversion != null)
-                        convertedFiles[i] = cachedConversion.equals(AppServerImage.NULL) ? null : cachedConversion;
-                    else {
-                        readFiles.add(file);
-                        readIndices.add(i);
-                    }
-                }
-
-                if (!readFiles.isEmpty()) { // optimization
-                    String[] remoteConvertedFiles = remoteClient.convertFileValue(sessionInfo, readFiles.toArray(new Serializable[0]));
-                    for (int i = 0; i < remoteConvertedFiles.length; i++) {
-                        String convertedFile = remoteConvertedFiles[i];
-                        cachedConversions.put(remoteClient, readFiles.get(i), convertedFile == null ? AppServerImage.NULL : convertedFile);
-                        convertedFiles[readIndices.get(i)] = convertedFile;
-                    }
-                }
-
-                return ExternalUtils.convertFileValue(stringWithFiles.prefixes, convertedFiles);
-            });
-        }
+    public Object convertFileValue(ExternalRequest request, Object value) {
+        if(value instanceof FileStringWithFiles)
+            return convertFileValue((FileStringWithFiles) value, request);
+        if (value instanceof StringWithFiles)
+            return convertFileValue((StringWithFiles) value, request);
         return value;
+    }
+
+    private FileData convertFileValue(FileStringWithFiles stringWithFiles, ExternalRequest request) {
+        return stringWithFiles.convertFileValue(stringData -> convertFileValue(stringData, request));
+    }
+
+    private String convertFileValue(StringWithFiles stringWithFiles, ExternalRequest request) {
+        return executeOnSomeClient(remoteClient -> {
+            Serializable[] files = stringWithFiles.files;
+            String[] convertedFiles = new String[files.length];
+
+            List<Serializable> readFiles = new ArrayList<>();
+            List<Integer> readIndices = new ArrayList<>();
+
+            for (int i = 0, filesLength = files.length; i < filesLength; i++) {
+                Serializable file = files[i];
+                String cachedConversion = cachedConversions.get(remoteClient, file);
+                if (cachedConversion != null)
+                    convertedFiles[i] = cachedConversion.equals(AppServerImage.NULL) ? null : cachedConversion;
+                else {
+                    readFiles.add(file);
+                    readIndices.add(i);
+                }
+            }
+
+            if (!readFiles.isEmpty()) { // optimization
+                String[] remoteConvertedFiles = remoteClient.convertFileValue(new SessionInfo(connectionInfo, request), readFiles.toArray(new Serializable[0]));
+                for (int i = 0; i < remoteConvertedFiles.length; i++) {
+                    String convertedFile = remoteConvertedFiles[i];
+                    cachedConversions.put(remoteClient, readFiles.get(i), convertedFile == null ? AppServerImage.NULL : convertedFile);
+                    convertedFiles[readIndices.get(i)] = convertedFile;
+                }
+            }
+
+            return ExternalUtils.convertFileValue(stringWithFiles.prefixes, convertedFiles);
+        });
     }
 }

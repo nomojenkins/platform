@@ -12,7 +12,7 @@ TABLE computer (Computer);
 
 hostname '{authentication.host.name.computer}' = DATA ISTRING[100] (Computer) CHARWIDTH 10 IN id;
 name(Computer c) += hostname(c);
-computer = GROUP LAST Computer computer ORDER computer BY hostname(computer);
+computer = GROUP LAST Computer computer ORDER computer BY hostname(computer) LAZY;
 
 FORM computer '{authentication.computer}'
     OBJECTS c = Computer PANEL
@@ -77,16 +77,25 @@ name '{authentication.name.user}' (User user) = IF user IS SystemUser
 name '{authentication.name.user}' (CustomUser user) = name[User](user AS CustomUser) CHARWIDTH 10;
 
 // login
-login '{authentication.login}' = DATA ISTRING[100] (CustomUser) CHARWIDTH 15;
+login '{authentication.login}' = DATA ISTRING (CustomUser) CHARWIDTH 15 LAZY;
 name(CustomUser c) += login(c);
-loginShortened(STRING login) = IF wordCount(login, ':') > 1 THEN getWord(login, ':', 2) ELSE login;
-customUserLower (login) = GROUP AGGR CustomUser customUser WHERE customUser IS CustomUser BY ISTRING[100](lower(login(customUser)));
-customUserLowerShort (login) = GROUP LAST CustomUser customUser ORDER customUser BY ISTRING[100](lower(loginShortened(login(customUser))));
-customUserNormalized (ISTRING[100] login) = OVERRIDE customUserLower(lower(login)), customUserLowerShort(lower(login));
-logName (CustomUser user) = OVERRIDE name(user), login(user);
+
+lowerLogin(CustomUser c) = lower(login(c));
+customUserLowerLogin = GROUP AGGR CustomUser customUser BY lowerLogin(customUser);
+customUserLogin (ISTRING login) = customUserLowerLogin(lower(login)) LAZY;
+lowerEmail(CustomUser c) = lower(email(c)) IF c IS CustomUser;
+customUserLowerEmail = GROUP LAST CustomUser customUser ORDER lowerLogin(customUser), customUser BY lowerEmail(customUser);
+customUserEmail(ISTRING email) = customUserLowerEmail(lower(email)) LAZY;
+
+// deprecated
+customUserLower(ISTRING[100] login) = customUserLowerLogin(login);
+customUserNormalized(ISTRING[100] login) = customUserLogin(login);
+
+//customUserNormalized (ISTRING[100] login) = customUserLower(lower(login)) LAZY;
+logName (CustomUser user) = OVERRIDE name(user), login(user) LAZY;
 
 // password
-sha256Password '{authentication.password}' = DATA STRING[100] (CustomUser) ECHO;
+sha256Password '{authentication.password}' = DATA STRING[100] (CustomUser) ECHO LAZY;
 calculatedHash = DATA LOCAL STRING[100] ();
 calculateBase64Hash INTERNAL  'lsfusion.server.physics.admin.authentication.action.CalculateBase64HashAction' (BPSTRING[10], BPSTRING[30]);
 changeSHA256Password(CustomUser customUser)  { 
@@ -118,7 +127,7 @@ generateAuthToken(user) {
 }
 
 // LDAP
-useLDAP '{authentication.use.ldap}' = DATA BOOLEAN ();
+useLDAP '{authentication.use.ldap}' = DATA BOOLEAN () LAZY;
 serverLDAP '{authentication.server.ldap}' = DATA STRING[100] ();
 portLDAP '{authentication.port.ldap}' = DATA INTEGER ();
 baseDNLDAP '{authentication.base.dn.ldap}' = DATA STRING[100] ();
@@ -225,7 +234,7 @@ passwordStrengthError = DATA LOCAL STRING ();
 registerUser(JSONFILE user) {
     IMPORT FROM user FIELDS STRING[100] login, STRING[100] password, STRING[100] firstName, STRING[100] lastName, STRING[400] email DO {
         checkPasswordStrength(password);
-        IF customUserNormalized(login) THEN {
+        IF customUserLogin(login) THEN {
             EXPORT FROM error = '{registration.not.successful.login.exist}';
         } ELSE IF passwordStrengthError() THEN {
             EXPORT FROM error = passwordStrengthError();
@@ -319,8 +328,8 @@ clearPassResetToken () + {
 }
 
 // lock
-isLocked '{authentication.is.locked.user}' = DATA BOOLEAN (CustomUser);
-isLockedLogin (login) = isLocked(customUserNormalized(lower(login)));
+isLocked '{authentication.is.locked.user}' = DATA BOOLEAN (CustomUser) LAZY;
+isLockedLogin (login) = isLocked(customUserLogin(lower(login)));
 
 // Current User
 currentUser = NATIVE User ();
@@ -340,14 +349,14 @@ userTwoDigitYearStart '{authentication.user.two.digit.year.start.user}' = DATA I
 userDateFormat '{authentication.user.date.format.user}' = DATA STRING (CustomUser);
 userTimeFormat '{authentication.user.time.format.user}' = DATA STRING (CustomUser);
 
-clientLanguage '{authentication.client.language.user}' = DATA STRING[3] (CustomUser) CHARWIDTH 5;
-clientCountry '{authentication.client.country.user}' = DATA STRING[3] (CustomUser) CHARWIDTH 5;
-clientTimeZone '{authentication.client.time.zone.user}' = DATA STRING[30] (CustomUser);
+clientLanguage '{authentication.client.language.user}' = DATA STRING[3] (CustomUser) CHARWIDTH 5 LAZY;
+clientCountry '{authentication.client.country.user}' = DATA STRING[3] (CustomUser) CHARWIDTH 5 LAZY;
+clientTimeZone '{authentication.client.time.zone.user}' = DATA STRING[30] (CustomUser) LAZY;
 useClientLocale '{authentication.use.client.locale.user}' = DATA BOOLEAN (CustomUser) CHARWIDTH 12;
 useClientTimeZone '{authentication.use.client.time.zone.user}' = DATA BOOLEAN (CustomUser) CHARWIDTH 12;
 
-clientDateFormat '{authentication.client.date.format.user}' = DATA STRING (CustomUser);
-clientTimeFormat '{authentication.client.time.format.user}' = DATA STRING (CustomUser);
+clientDateFormat '{authentication.client.date.format.user}' = DATA STRING (CustomUser) LAZY;
+clientTimeFormat '{authentication.client.time.format.user}' = DATA STRING (CustomUser) LAZY;
 useClientDateTimeFormat '{authentication.use.client.date.time.format.user}' = DATA BOOLEAN (CustomUser);
 
 defaultUserLanguage '{authentication.default.user.language}' = DATA STRING[3] ();
@@ -364,19 +373,19 @@ serverTwoDigitYearStart '{authentication.server.two.digit.year.start}' = DATA IN
 serverDateFormat '{authentication.server.date.format}' = DATA STRING ();
 serverTimeFormat '{authentication.server.time.format}' = DATA STRING ();
 
-language '{authentication.language.user}' (CustomUser user) = OVERRIDE (clientLanguage(user) IF useClientLocale(user)), userLanguage(user), defaultUserLanguage(), serverLanguage();
+language '{authentication.language.user}' (CustomUser user) = OVERRIDE (clientLanguage(user) IF useClientLocale(user)), userLanguage(user), defaultUserLanguage(), serverLanguage() LAZY;
 country '{authentication.country.user}' (CustomUser user) = IF useClientLocale(user) AND clientLanguage(user) 
                                                                 THEN clientCountry(user)
-                                                                ELSE IF userLanguage(user) THEN userCountry(user) ELSE IF defaultUserLanguage() THEN defaultUserCountry() ELSE serverCountry();
+                                                                ELSE IF userLanguage(user) THEN userCountry(user) ELSE IF defaultUserLanguage() THEN defaultUserCountry() ELSE serverCountry()  LAZY;
 
-dateFormat (CustomUser user) = OVERRIDE (clientDateFormat(user) IF useClientDateTimeFormat(user)), userDateFormat(user), defaultUserDateFormat(), serverDateFormat();
-timeFormat (CustomUser user) = OVERRIDE (clientTimeFormat(user) IF useClientDateTimeFormat(user)), userTimeFormat(user), defaultUserTimeFormat(), serverTimeFormat();
+dateFormat (CustomUser user) = OVERRIDE (clientDateFormat(user) IF useClientDateTimeFormat(user)), userDateFormat(user), defaultUserDateFormat(), serverDateFormat() LAZY;
+timeFormat (CustomUser user) = OVERRIDE (clientTimeFormat(user) IF useClientDateTimeFormat(user)), userTimeFormat(user), defaultUserTimeFormat(), serverTimeFormat() LAZY;
 
 lsfParams(STRING s) += country(currentUser()) IF s = 'googleMapAutocompleteCountry';
 lsfParams(STRING s) += language(currentUser()) IF s = 'googleGeocodingLanguage';
 
-timeZone '{authentication.time.zone.user}' (CustomUser user) = OVERRIDE (clientTimeZone(user) IF useClientTimeZone(user)), userTimeZone(user), defaultUserTimezone(), serverTimezone();
-twoDigitYearStart '{authentication.two.digit.year.start.user}' (CustomUser user) = OVERRIDE userTwoDigitYearStart(user), defaultUserTwoDigitYearStart(), serverTwoDigitYearStart();
+timeZone '{authentication.time.zone.user}' (CustomUser user) = OVERRIDE (clientTimeZone(user) IF useClientTimeZone(user)), userTimeZone(user), defaultUserTimezone(), serverTimezone() LAZY;
+twoDigitYearStart '{authentication.two.digit.year.start.user}' (CustomUser user) = OVERRIDE userTwoDigitYearStart(user), defaultUserTwoDigitYearStart(), serverTwoDigitYearStart() LAZY;
 
 // "duplicate" of loadLocalePreferences, but web-client needs this data just right after authentication
 getCurrentUserLocale() {
@@ -429,7 +438,7 @@ syncUsers ABSTRACT LIST (ISTRING[100], JSONFILE) @@noauth;
 syncUsers (ISTRING[100] computer, JSONFILE users) + { 
     LOCAL syncSavedUser = BPSTRING[100](INTEGER);
     IMPORT FROM users TO syncSavedUser=value;
-    EXPORT FROM value=STRING s WHERE s = syncSavedUser(INTEGER i) AND customUserNormalized(s) AND NOT isLockedLogin(s);
+    EXPORT FROM value=STRING s WHERE s = syncSavedUser(INTEGER i) AND customUserLogin(s) AND NOT isLockedLogin(s);
 }
 
 FORM customUser '{authentication.custom.user}'
@@ -667,7 +676,7 @@ relogin '{authentication.relogin}'  INTERNAL  'lsfusion.server.physics.admin.aut
 reloginLoginUser()  { 
     DIALOG reloginLoginUser OBJECTS login INPUT, password INPUT DO {
         LOCAL user = CustomUser();
-        user() <- customUserNormalized(login);
+        user() <- customUserLogin(login);
         IF user() THEN {
             IF isLocked(user()) THEN {
                 MESSAGE '{authentication.relogin.user.locked}';

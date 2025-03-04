@@ -51,7 +51,7 @@ public class ModalForm extends FormContainer {
         contentWidget = window;
 
         // this is form container, that is shrinked and needs padding
-//        contentWidget.getBody().addStyleName("form-shrink-padded-container");
+        //GwtClientUtils.addXStyleName(contentWidget.getBody(), "form-shrink-padded-container");
     }
 
     protected void initPreferredSize() {
@@ -59,7 +59,7 @@ public class ModalForm extends FormContainer {
             GSize maxWidth = GwtClientUtils.getOffsetWidth(Document.get().getBody()).subtract(GSize.CONST(20));
             GSize maxHeight = GwtClientUtils.getOffsetHeight(Document.get().getBody()).subtract(GSize.CONST(100));
 
-            contentWidget.setContentSize(form.getPreferredSize(maxWidth, maxHeight, contentWidget.getContentWidget().getElement()));
+            form.initPreferredSize(contentWidget.getBody(), maxWidth, maxHeight);
         }
     }
 

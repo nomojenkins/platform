@@ -39,7 +39,7 @@ public class LogicsInstanceContext extends AbstractContext {
     public LogicsInstanceContext(LogicsInstance logicsInstance) {
         this.logicsInstance = logicsInstance;
 
-        remoteContext = new ConnectionContext(true, false);
+        remoteContext = new ConnectionContext(true, false, false, false);
     }
 
     @Override
@@ -85,29 +85,6 @@ public class LogicsInstanceContext extends AbstractContext {
     @Override
     public LogInfo getLogInfo() {
         return LogInfo.system;
-    }
-
-    @Override
-    public void aspectDelayUserInteraction(ClientAction action, String message) {
-        if(message != null)
-            systemLogger.info("Server message: " + message);
-        else if (!(action instanceof ResetServerSettingsCacheClientAction)) //todo. temporary fix. problem on empty DB is that ResetServerSettingsCacheClientAction is called when there is no client context yet.
-            throw new UnsupportedOperationException("delayUserInteraction is not supported in server context, action : " + action.getClass());
-    }
-
-    @Override
-    public Object[] aspectRequestUserInteraction(ClientAction[] actions, String[] messages) {
-        for (int i = 0; i < messages.length; i++) {
-            String message = messages[i];
-            if (message == null)
-                throw new UnsupportedOperationException("requestUserInteraction is not supported in server context, action : " + actions[i].getClass());
-        }
-        return new Object[actions.length];
-    }
-
-    @Override
-    public boolean canBeProcessed() {
-        return true;
     }
 
     // used in some deprecated actions

@@ -20,12 +20,13 @@ import lsfusion.interop.base.exception.AuthenticationException;
 import lsfusion.interop.base.exception.RemoteMessageException;
 import lsfusion.interop.connection.AuthenticationToken;
 import lsfusion.interop.connection.ClientType;
-import lsfusion.interop.connection.LocalePreferences;
+import lsfusion.interop.connection.ConnectionInfo;
 import lsfusion.interop.form.remote.RemoteFormInterface;
 import lsfusion.interop.navigator.ClientInfo;
 import lsfusion.interop.navigator.NavigatorInfo;
 import lsfusion.interop.navigator.remote.RemoteNavigatorInterface;
 import lsfusion.server.base.caches.IdentityInstanceLazy;
+import lsfusion.server.base.controller.context.Context;
 import lsfusion.server.base.controller.remote.context.RemoteContextAspect;
 import lsfusion.server.base.controller.stack.StackMessage;
 import lsfusion.server.base.controller.stack.ThisMessage;
@@ -106,6 +107,7 @@ public class RemoteNavigator extends RemoteConnection implements RemoteNavigator
 
     private boolean useBootstrap;
     private boolean contentWordWrap;
+    private boolean highlightDuplicateValue;
     private boolean isNative;
     private boolean isMobile;
 
@@ -119,20 +121,19 @@ public class RemoteNavigator extends RemoteConnection implements RemoteNavigator
 
     private static final List<Pair<DataObject, String>> recentlyOpenForms = Collections.synchronizedList(new ArrayList<>());
 
+    public String sessionId;
+
     // в настройку надо будет вынести : по группам, способ релевантности групп, какую релевантность отсекать
     public RemoteNavigator(int port, LogicsInstance logicsInstance, AuthenticationToken token, NavigatorInfo navigatorInfo, ExecutionStack stack) throws RemoteException, ClassNotFoundException, SQLException, InstantiationException, IllegalAccessException, SQLHandledException {
-        super(port, "navigator", stack);
-
-        setContext(new RemoteNavigatorContext(this));
-        initContext(logicsInstance, token, navigatorInfo.session, stack);
+        super(port, "navigator", logicsInstance, token, navigatorInfo.session, stack);
 
         changesSync = new ChangesSync(dbManager, this);
-        
+
         ServerLoggers.remoteLifeLog("NAVIGATOR OPEN : " + this);
 
         this.classCache = new ClassCache();
 
-        remoteContext = new ConnectionContext(isUseBootstrap(), isContentWordWrap());
+        remoteContext = new ConnectionContext(isUseBootstrap(), isContentWordWrap(), highlightDuplicateValue(), isNative());
 
         this.client = new ClientCallBackController(port, toString(), this::updateLastUsedTime);
 
@@ -140,43 +141,38 @@ public class RemoteNavigator extends RemoteConnection implements RemoteNavigator
 
         this.navigatorManager = logicsInstance.getNavigatorsManager();
         navigatorManager.navigatorCreated(stack, this, navigatorInfo);
+
+        sessionId = navigatorInfo.session.externalRequest.sessionId;
     }
 
-    @Override
-    protected void initUserContext(String hostName, String remoteAddress, String clientLanguage, String clientCountry, TimeZone clientTimeZone, String clientDateFormat, String clientTimeFormat,
-                                   String clientColorTheme, ExecutionStack stack, DataSession session) throws SQLException, SQLHandledException {
-        super.initUserContext(hostName, remoteAddress, clientLanguage, clientCountry, clientTimeZone, clientDateFormat, clientTimeFormat, clientColorTheme, stack, session);
-        DataObject designEnv = businessLogics.authenticationLM.storeNavigatorSettingsForComputer.read(session) != null ? computer : user;
-        useBootstrap = businessLogics.systemEventsLM.useBootstrap.read(session, designEnv) != null;
-        contentWordWrap = businessLogics.systemEventsLM.contentWordWrap.read(session, designEnv) != null;
-        localePreferences = readLocalePreferences(session, user, businessLogics, clientTimeZone, clientDateFormat, clientTimeFormat, stack);
-        securityPolicy = logicsInstance.getSecurityManager().getSecurityPolicy(session, user);
-        saveClientColorTheme(session, designEnv, businessLogics, clientColorTheme, stack);
+    protected Context createContext() {
+        return new RemoteNavigatorContext(this);
     }
 
-    private static void saveClientTimeZone(DataSession session, DataObject user, BusinessLogics businessLogics, TimeZone clientTimeZone, String clientDateFormat, String clientTimeFormat, ExecutionStack stack) throws SQLException, SQLHandledException {
-        if (clientTimeZone != null) {
-            businessLogics.authenticationLM.clientTimeZone.change(clientTimeZone.getID(), session, user);
-            businessLogics.authenticationLM.clientDateFormat.change(clientDateFormat, session, user);
-            businessLogics.authenticationLM.clientTimeFormat.change(clientTimeFormat, session, user);
-            session.applyException(businessLogics, stack);
-        }
-    }
-
-    private static void saveClientColorTheme(DataSession session, DataObject designEnv, BusinessLogics businessLogics, String clientColorTheme, ExecutionStack stack) throws SQLException, SQLHandledException {
+    private void saveNavigatorUserContext(String clientColorTheme, ExecutionStack stack, DataSession session) throws SQLException, SQLHandledException {
         if(clientColorTheme != null) {
+            DataObject designEnv = businessLogics.authenticationLM.storeNavigatorSettingsForComputer.read(session) != null ? computer : user;
             businessLogics.authenticationLM.clientColorTheme.change(businessLogics.authenticationLM.colorTheme.getDataObject(clientColorTheme), session, designEnv);
             session.applyException(businessLogics, stack);
         }
     }
 
-    private LocalePreferences readLocalePreferences(DataSession session, DataObject user, BusinessLogics businessLogics, TimeZone clientTimeZone, String clientDateFormat, String clientTimeFormat, ExecutionStack stack) throws SQLException, SQLHandledException {
-        saveClientTimeZone(session, user, businessLogics, clientTimeZone, clientDateFormat, clientTimeFormat, stack);
-        return new LocalePreferences(locale,
-                (String) businessLogics.authenticationLM.timeZone.read(session, user),
-                (Integer) businessLogics.authenticationLM.twoDigitYearStart.read(session, user),
-                (String) businessLogics.authenticationLM.dateFormat.read(session, user),
-                (String) businessLogics.authenticationLM.timeFormat.read(session, user));
+    private void initNavigatorUserContext(DataSession session) throws SQLException, SQLHandledException {
+        useBootstrap = businessLogics.systemEventsLM.useBootstrap.read(session) != null;
+        contentWordWrap = businessLogics.systemEventsLM.contentWordWrap.read(session) != null;
+        highlightDuplicateValue = businessLogics.systemEventsLM.highlightDuplicateValue.read(session) != null;
+        securityPolicy = securityManager.getSecurityPolicy(session, user);
+    }
+
+    @Override
+    public void initConnectionContext(AuthenticationToken token, ConnectionInfo connectionInfo, ExecutionStack stack) throws SQLException, SQLHandledException {
+        super.initConnectionContext(token, connectionInfo, stack);
+
+        try(DataSession session = createSession()) {
+            saveNavigatorUserContext(connectionInfo.userInfo.clientColorTheme, stack, session);
+
+            initNavigatorUserContext(session);
+        }
     }
 
     public void logClientException(String hostname, Throwable t) {
@@ -216,6 +212,11 @@ public class RemoteNavigator extends RemoteConnection implements RemoteNavigator
 
     public boolean isContentWordWrap() {
         return contentWordWrap;
+    }
+
+    @Override
+    public boolean highlightDuplicateValue() {
+        return highlightDuplicateValue;
     }
 
     public boolean isNative() {
@@ -266,6 +267,14 @@ public class RemoteNavigator extends RemoteConnection implements RemoteNavigator
             ChangesSync changesSync = weakThis.get();
             if(changesSync != null)
                 return changesSync.getDbManager();
+            return null;
+        }
+
+        @Override
+        public <T extends PropertyInterface> ObjectValue readLazyValue(Property<T> property, ImMap<T, ? extends ObjectValue> keys) throws SQLException, SQLHandledException {
+            ChangesSync changesSync = weakThis.get();
+            if(changesSync != null)
+                return changesSync.readLazyValue(property, keys);
             return null;
         }
 

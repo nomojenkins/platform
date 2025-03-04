@@ -1,7 +1,7 @@
 CREATE OR REPLACE FUNCTION cast_static_file_to_dynamic_file(file bytea, ext VARCHAR) RETURNS bytea AS
 $$
 BEGIN
-    ext = COALESCE(ext, 'dat');
+    ext = COALESCE(NULLIF(ext, ''), 'dat');
 	if ((ext = 'doc' or ext = 'xls') and (length(file) > 3) and (get_byte(file, 0) = 80) and (get_byte(file, 1) = 75) and (get_byte(file, 2) = 3) and (get_byte(file, 3) = 4)) then
 		ext = ext || 'x';
 	end if;
@@ -28,10 +28,10 @@ $$ LANGUAGE 'plpgsql' IMMUTABLE;
 
 --json (jsonb)
 
-CREATE OR REPLACE FUNCTION cast_json_to_static_file(json jsonb) RETURNS bytea AS
+CREATE OR REPLACE FUNCTION cast_json_to_static_file(param jsonb) RETURNS bytea AS
 $$
 BEGIN
-	RETURN convert_to(json::text,'UTF-8');
+RETURN convert_to(param::text,'UTF-8');
 END;
 $$ LANGUAGE 'plpgsql' IMMUTABLE;
 
@@ -44,10 +44,10 @@ $$ LANGUAGE 'plpgsql' IMMUTABLE;
 
 --json string (json)
 
-CREATE OR REPLACE FUNCTION cast_json_text_to_static_file(json json) RETURNS bytea AS
+CREATE OR REPLACE FUNCTION cast_json_text_to_static_file(param json) RETURNS bytea AS
 $$
 BEGIN
-RETURN convert_to(json::text,'UTF-8');
+RETURN convert_to(param::text,'UTF-8');
 END;
 $$ LANGUAGE 'plpgsql' IMMUTABLE;
 

@@ -1,5 +1,5 @@
 
-.oppositeSizeCssFixPanel {
+.opposite-size-css-fix-panel {
 }
 
 .intr-shrink-width,.prop-value-shrink-horz > *:not(.property-toolbar) { /* toolbar has max-width: 50% and in general it's own layouting */
@@ -118,6 +118,14 @@
 
 .fill-parent-position {
     position: relative;
+}
+
+@supports (-moz-appearance: none) {
+    /* in firefox event the height: fit-content doesn't help to extend div to td, but setting td height to 100% helps somewhy (but table height: fit-content also should be set)*/
+    td:has(> .fill-parent-perc),
+    th:has(> .fill-parent-perc) {
+        height: 100%;
+    }
 }
 
 .fill-parent-perc {

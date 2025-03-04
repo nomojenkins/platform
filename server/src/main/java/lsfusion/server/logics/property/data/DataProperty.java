@@ -184,10 +184,9 @@ public abstract class DataProperty extends AbstractDataProperty {
     }
 
     @Override
-    public boolean calculateCheckRecursions(ImSet<CaseUnionProperty> abstractPath, ImSet<Property> path, Set<Property> marks) {
-        if (event != null)
-            return event.where.property.calculateCheckRecursions(abstractPath, path, marks);
-        return false;
+    public void calculateCheckRecursions(Set<Property<?>> path, Set<Property<?>> localMarks, Set<Property<?>> marks, boolean usePrev) {
+        if (event != null && !usePrev)
+            event.where.property.calculateCheckRecursions(path, localMarks, marks, false);
     }
 
     public Expr calculateExpr(ImMap<ClassPropertyInterface, ? extends Expr> joinImplement, CalcType calcType, PropertyChanges propChanges, WhereBuilder changedWhere) {
@@ -209,9 +208,8 @@ public abstract class DataProperty extends AbstractDataProperty {
         PropertyChange<ClassPropertyInterface> result = null;
 
         PropertyChange<ClassPropertyInterface> eventChange = null; // до непосредственно вычисления, для хинтов
-        if(event!=null)
+        if(event != null)
             eventChange = ((ChangeEvent<ClassPropertyInterface>)event).getDataChanges(changes, event.isData() ? joinValues : MapFact.EMPTY()).get(this);
-
 
         if(!noClasses()) {
             PropertyChanges prevPropChanges = getPrevPropChanges(calcType, changes);

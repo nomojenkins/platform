@@ -4,6 +4,7 @@ import lsfusion.base.ReflectionUtils;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
 import lsfusion.base.col.implementations.HMap;
+import lsfusion.base.col.implementations.abs.AMap;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderMap;
 import lsfusion.base.col.interfaces.immutable.ImSet;
@@ -17,7 +18,6 @@ import lsfusion.server.data.OperationOwner;
 import lsfusion.server.data.query.exec.StaticExecuteEnvironmentImpl;
 import lsfusion.server.data.sql.SQLSession;
 import lsfusion.server.data.sql.exception.SQLHandledException;
-import lsfusion.server.data.type.parse.ParseInterface;
 import lsfusion.server.data.type.reader.CustomReader;
 import lsfusion.server.data.type.reader.PGObjectReader;
 import lsfusion.server.data.type.reader.Reader;
@@ -106,7 +106,7 @@ public abstract class ProcessDumpAction extends InternalAction {
         String lockName = threadInfo == null ? null : threadInfo.getLockName();
         String lockOwnerId = threadInfo == null ? null : String.valueOf(threadInfo.getLockOwnerId());
         String lockOwnerName = threadInfo == null ? null : threadInfo.getLockOwnerName();
-        LogInfo logInfo = thread == null ? null : ThreadLocalContext.logInfoMap.get(thread);
+        LogInfo logInfo = thread == null ? null : ThreadLocalContext.getLogInfo(thread);
         String computer = logInfo == null ? null : logInfo.hostnameComputer;
         String user = logInfo == null ? null : logInfo.userName;
         String lsfStack = ExecutionStackAspect.getLSFStack(thread);
@@ -191,8 +191,8 @@ public abstract class ProcessDumpAction extends InternalAction {
         propertyReaders.exclAdd("start_time", DateTimeClass.instance);
         propertyReaders.immutable();
 
-        ImOrderMap rs = context.getSession().sql.executeSelect(originalQuery, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, (ImMap<String, ParseInterface>) MapFact.mExclMap()
-                , 0, ((ImSet) keyNames).toRevMap(), (ImMap) keyReaders, ((ImSet) propertyNames).toRevMap(), (ImMap) propertyReaders);
+        ImOrderMap rs = context.getSession().sql.executeSelect(originalQuery, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, MapFact.EMPTY()
+                , 0, keyNames.immutable().toRevMap(), keyReaders.immutable(), propertyNames.immutable().toRevMap(), propertyReaders.immutable());
 
         Map<String, SQLProcess> resultMap = new HashMap<>();
         for (Object rsValue : rs.values()) {
@@ -273,8 +273,8 @@ public abstract class ProcessDumpAction extends InternalAction {
         propertyReaders.exclAdd("wait_event", StringClass.get(100));
         propertyReaders.immutable();
 
-        ImOrderMap rs = context.getSession().sql.executeSelect(originalQuery, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, (ImMap<String, ParseInterface>) MapFact.mExclMap(),
-                0, ((ImSet) keyNames).toRevMap(), (ImMap) keyReaders, ((ImSet) propertyNames).toRevMap(), (ImMap) propertyReaders);
+        ImOrderMap rs = context.getSession().sql.executeSelect(originalQuery, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, MapFact.EMPTY(),
+                0, keyNames.immutable().toRevMap(), keyReaders.immutable(), propertyNames.immutable().toRevMap(), propertyReaders.immutable());
 
         if (logSqlProcesses) {
             ServerLoggers.exInfoLogger.info("sessionThreadMap");
@@ -288,7 +288,7 @@ public abstract class ProcessDumpAction extends InternalAction {
         Map<String, SQLProcess> resultMap = new HashMap<>();
         for (Object rsValue : rs.values()) {
 
-            HMap entry = (HMap) rsValue;
+            AMap entry = (AMap) rsValue;
 
             String query = trimToEmpty((String) entry.get("query"));
             String state = trimToEmpty((String) entry.get("state"));
@@ -386,12 +386,12 @@ public abstract class ProcessDumpAction extends InternalAction {
         propertyReaders.exclAdd("blocking_statement", StringClass.get(100));
         propertyReaders.immutable();
 
-        ImOrderMap rs = sql.executeSelect(originalQuery, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, (ImMap<String, ParseInterface>) MapFact.mExclMap(),
-                0, ((ImSet) keyNames).toRevMap(), (ImMap) keyReaders, ((ImSet) propertyNames).toRevMap(), (ImMap) propertyReaders, true);
+        ImOrderMap rs = sql.executeSelect(originalQuery, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, MapFact.EMPTY(),
+                0, keyNames.immutable().toRevMap(), keyReaders.immutable(), propertyNames.immutable().toRevMap(), propertyReaders.immutable());
 
         Map<Integer, List<Object>> resultMap = new HashMap<>();
         for (Object rsValue : rs.values()) {
-            HMap entry = (HMap) rsValue;
+            AMap entry = (AMap) rsValue;
             Integer blocked_pid = (Integer) entry.get("blocked_pid");
             Integer blocking_pid = (Integer) entry.get("blocking_pid");
             String blocking_statement = trim((String) entry.get("blocking_statement"), 100);

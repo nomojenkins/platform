@@ -2,18 +2,12 @@ package lsfusion.server.data.sql.syntax;
 
 import lsfusion.base.BaseUtils;
 import lsfusion.base.SystemUtils;
-import lsfusion.base.col.ListFact;
 import lsfusion.base.col.interfaces.immutable.ImList;
-import lsfusion.base.col.interfaces.immutable.ImOrderMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderSet;
 import lsfusion.interop.form.property.ExtInt;
 import lsfusion.interop.form.remote.serialization.BinarySerializable;
 import lsfusion.server.base.caches.IdentityStrongLazy;
 import lsfusion.server.data.expr.formula.SQLSyntaxType;
-import lsfusion.server.data.expr.formula.SumFormulaImpl;
-import lsfusion.server.data.expr.query.GroupType;
-import lsfusion.server.data.expr.value.ValueExpr;
-import lsfusion.server.data.query.compile.CompileOrder;
 import lsfusion.server.data.query.exec.MStaticExecuteEnvironment;
 import lsfusion.server.data.table.Field;
 import lsfusion.server.data.table.SessionTable;
@@ -23,10 +17,7 @@ import lsfusion.server.data.type.Type;
 import lsfusion.server.data.type.TypeFunc;
 import lsfusion.server.data.type.exec.EnsureTypeEnvironment;
 import lsfusion.server.data.type.exec.TypeEnvironment;
-import lsfusion.server.data.type.reader.ClassReader;
-import lsfusion.server.data.type.reader.NullReader;
 import lsfusion.server.logics.classes.data.ArrayClass;
-import lsfusion.server.logics.classes.data.StringClass;
 import lsfusion.server.physics.admin.Settings;
 
 import java.io.DataOutputStream;
@@ -75,11 +66,11 @@ public class MSSQLSQLSyntax extends DefaultSQLSyntax {
         return "CREATE TABLE " + getSessionTableName(tableName) + " (" + declareString + ")";
     }
 
-    public String getSelect(String from, String exprs, String where, String orderBy, String groupBy, String having, String top, boolean distinct) {
+    public String getSelect(String from, String exprs, String where, String orderBy, String groupBy, String having, String top, String offset, boolean distinct) {
         return "SELECT" + (distinct ? "DISTINCT " : "") + BaseUtils.clause("TOP", top) + " " + exprs + " FROM " + from + BaseUtils.clause("WHERE", where) + BaseUtils.clause("GROUP BY", groupBy) + BaseUtils.clause("HAVING", having) + BaseUtils.clause("ORDER BY", orderBy);
     }
 
-    public String getUnionOrder(String union, String orderBy, String top) {
+    public String getUnionOrder(String union, String orderBy, String top, String offset) {
         if(top.length()==0)
             return union + BaseUtils.clause("ORDER BY", orderBy);
         return "SELECT" + BaseUtils.clause("TOP", top) + " * FROM (" + union + ") UALIAS" + BaseUtils.clause("ORDER BY", orderBy);
@@ -159,10 +150,6 @@ public class MSSQLSQLSyntax extends DefaultSQLSyntax {
 
     public String getGlobalTableName(String tableName) {
         return escapeID(tableName);
-    }
-
-    private String escapeID(String ID) {
-        return '"' + ID + '"';
     }
 
     @Override

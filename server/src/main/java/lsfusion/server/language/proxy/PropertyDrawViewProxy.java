@@ -37,7 +37,7 @@ public class PropertyDrawViewProxy extends ComponentViewProxy<PropertyDrawView> 
     }
 
     public void setHide(boolean hide) {
-        target.hide = hide;
+        target.entity.hide = hide;
     }
 
     public void setMaxValue(long maxValue) {
@@ -121,6 +121,12 @@ public class PropertyDrawViewProxy extends ComponentViewProxy<PropertyDrawView> 
 
     public void setPanelColumnVertical(boolean panelColumnVertical) {
         target.panelColumnVertical = panelColumnVertical;
+    }
+
+    public void setClass(Object elementClass) {
+        super.setClass(elementClass);
+        if(elementClass instanceof PropertyObjectEntity)
+            target.entity.setPropertyExtra((PropertyObjectEntity<?>) elementClass, PropertyDrawExtraType.GRIDELEMENTCLASS, getVersion());
     }
 
     public void setValueClass(Object valueClass) {
@@ -308,6 +314,10 @@ public class PropertyDrawViewProxy extends ComponentViewProxy<PropertyDrawView> 
         return result;
     }
 
+    public void setPanelCustom(Boolean panelCustom) {
+        target.panelCustom = panelCustom;
+    }
+
     public void setValueOverflowHorz(String valueOverflowHorz) {
         target.valueOverflowHorz = valueOverflowHorz;
     }
@@ -326,6 +336,10 @@ public class PropertyDrawViewProxy extends ComponentViewProxy<PropertyDrawView> 
 
     public void setWrap(boolean wrap) {
         target.wrap = wrap;
+    }
+
+    public void setHighlightDuplicate(boolean highlightDuplicate) {
+        target.highlightDuplicate = highlightDuplicate;
     }
 
     public void setWrapWordBreak(boolean wrapWordBreak) {

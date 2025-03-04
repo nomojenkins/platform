@@ -13,6 +13,7 @@ import lsfusion.interop.action.MessageClientType;
 import lsfusion.interop.form.ModalityWindowFormType;
 import lsfusion.interop.form.ShowFormType;
 import lsfusion.interop.form.WindowFormType;
+import lsfusion.interop.session.ExternalRequest;
 import lsfusion.server.base.controller.remote.RmiManager;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.data.QueryEnvironment;
@@ -71,6 +72,8 @@ import java.sql.SQLException;
 import java.util.List;
 import java.util.Stack;
 import java.util.concurrent.ScheduledExecutorService;
+
+import static lsfusion.server.base.controller.thread.ThreadLocalContext.localize;
 
 public class ExecutionContext<P extends PropertyInterface> implements UserInteraction, SessionCreator {
     private ImMap<P, ? extends ObjectValue> keys;
@@ -181,6 +184,8 @@ public class ExecutionContext<P extends PropertyInterface> implements UserIntera
 
     private final ScheduledExecutorService executorService;
 
+    private final ConnectionService connectionService;
+
     private final FormEnvironment<P> form;
 
     // debug info 
@@ -208,25 +213,27 @@ public class ExecutionContext<P extends PropertyInterface> implements UserIntera
     }
 
     public ExecutionContext(ImMap<P, ? extends ObjectValue> keys, ExecutionEnvironment env, ExecutionStack stack, FormEnvironment formEnv) {
-        this(keys, null, env, null, formEnv, stack, false);
+        this(keys, null, env, null, null, formEnv, stack, false);
     }
 
-    public ExecutionContext(ImMap<P, ? extends ObjectValue> keys, PushAsyncResult pushedAsyncResult, ExecutionEnvironment env, ScheduledExecutorService executorService, FormEnvironment<P> form, ExecutionStack stack, boolean hasMoreSessionUsages) {
+    public ExecutionContext(ImMap<P, ? extends ObjectValue> keys, PushAsyncResult pushedAsyncResult, ExecutionEnvironment env, ScheduledExecutorService executorService,
+                            ConnectionService connectionService, FormEnvironment<P> form, ExecutionStack stack, boolean hasMoreSessionUsages) {
         this.keys = keys;
         this.pushedAsyncResult = pushedAsyncResult;
         this.env = env;
         this.executorService = executorService;
+        this.connectionService = connectionService;
         this.form = form;
         this.stack = new ContextStack(stack);
         this.hasMoreSessionUsages = hasMoreSessionUsages;
     }
     
     public ExecutionContext<P> override() { // для дебаггера
-        return new ExecutionContext<>(keys, pushedAsyncResult, env, executorService, form, stack, hasMoreSessionUsages);
+        return new ExecutionContext<>(keys, pushedAsyncResult, env, executorService, connectionService, form, stack, hasMoreSessionUsages);
     }
     
     public ExecutionContext<P> override(boolean hasMoreSessionUsages) {
-        return new ExecutionContext<>(keys, pushedAsyncResult, env, executorService, form, stack, hasMoreSessionUsages);
+        return new ExecutionContext<>(keys, pushedAsyncResult, env, executorService, connectionService, form, stack, hasMoreSessionUsages);
     }
 
     public void setParamsToInterfaces(ImRevMap<String, P> paramsToInterfaces) {
@@ -251,6 +258,10 @@ public class ExecutionContext<P extends PropertyInterface> implements UserIntera
 
     public ScheduledExecutorService getExecutorService() {
         return executorService;
+    }
+
+    public ConnectionService getConnectionService() {
+        return connectionService;
     }
 
     public ImRevMap<String, P> getParamsToInterfaces() {
@@ -363,6 +374,10 @@ public class ExecutionContext<P extends PropertyInterface> implements UserIntera
         message(message, header, MessageClientType.WARN);
     }
 
+    public void messageError(String message) {
+        messageError(message, localize("{logics.error}"));
+    }
+
     public void messageError(String message, String header) {
         message(message, header, MessageClientType.ERROR);
     }
@@ -456,8 +471,9 @@ public class ExecutionContext<P extends PropertyInterface> implements UserIntera
 
     public static class NewSession<P extends PropertyInterface> extends ExecutionContext<P> implements AutoCloseable {
 
-        public NewSession(ImMap<P, ? extends ObjectValue> keys, PushAsyncResult pushedAsyncResult, DataSession session, ScheduledExecutorService executorService, FormEnvironment<P> form, ExecutionStack stack) {
-            super(keys, pushedAsyncResult, session, executorService, form, stack, false);
+        public NewSession(ImMap<P, ? extends ObjectValue> keys, PushAsyncResult pushedAsyncResult, DataSession session, ScheduledExecutorService executorService,
+                          ConnectionService connectionService, FormEnvironment<P> form, ExecutionStack stack) {
+            super(keys, pushedAsyncResult, session, executorService, connectionService, form, stack, false);
         }
 
         @Override
@@ -472,7 +488,7 @@ public class ExecutionContext<P extends PropertyInterface> implements UserIntera
         return newSession(getSession().sql, fixedForms);
     }
     public NewSession<P> newSession(SQLSession sql, ImSet<FormEntity> fixedForms) throws SQLException { // the same as override, bu
-        return new NewSession<>(keys, pushedAsyncResult, getSession().createSession(sql, fixedForms), executorService, form, stack);
+        return new NewSession<>(keys, pushedAsyncResult, getSession().createSession(sql, fixedForms), executorService, connectionService, form, stack);
     }
 
     public ActionOrProperty getSecurityProperty() {
@@ -579,8 +595,8 @@ public class ExecutionContext<P extends PropertyInterface> implements UserIntera
     }
 
     // action calls
-    public boolean apply(ImOrderSet<ActionValueImplement> applyActions, FunctionSet<SessionDataProperty> keepProperties, Result<String> applyMessage) throws SQLException, SQLHandledException {
-        return getEnv().apply(getBL(), stack, this, applyActions, keepProperties, getSessionEventFormEnv(), applyMessage);
+    public boolean apply(ImOrderSet<ActionValueImplement> applyActions, boolean forceSerializable, FunctionSet<SessionDataProperty> keepProperties, Result<String> applyMessage) throws SQLException, SQLHandledException {
+        return getEnv().apply(getBL(), stack, this, applyActions, keepProperties, getSessionEventFormEnv(), applyMessage, forceSerializable);
     }
 
     public void cancel(FunctionSet<SessionDataProperty> keep) throws SQLException, SQLHandledException {
@@ -588,15 +604,19 @@ public class ExecutionContext<P extends PropertyInterface> implements UserIntera
     }
 
     public ExecutionContext<P> override(ScheduledExecutorService newExecutorService) {
-        return new ExecutionContext<>(keys, pushedAsyncResult, env, newExecutorService, form, stack, hasMoreSessionUsages);
+        return new ExecutionContext<>(keys, pushedAsyncResult, env, newExecutorService, connectionService, form, stack, hasMoreSessionUsages);
+    }
+
+    public ExecutionContext<P> override(ConnectionService newConnectionService) {
+        return new ExecutionContext<>(keys, pushedAsyncResult, env, executorService, newConnectionService, form, stack, hasMoreSessionUsages);
     }
 
     public ExecutionContext<P> override(ExecutionEnvironment newEnv, ExecutionStack stack, PushAsyncResult pushedAsyncResult) {
-        return new ExecutionContext<>(keys, pushedAsyncResult, newEnv, executorService, new FormEnvironment<>(null, null, newEnv.getFormInstance()), stack, hasMoreSessionUsages);
+        return new ExecutionContext<>(keys, pushedAsyncResult, newEnv, executorService, connectionService, new FormEnvironment<>(null, null, newEnv.getFormInstance()), stack, hasMoreSessionUsages);
     }
 
     public ExecutionContext<P> override(ExecutionStack stack) {
-        return new ExecutionContext<>(keys, pushedAsyncResult, env, executorService, form, stack, hasMoreSessionUsages);
+        return new ExecutionContext<>(keys, pushedAsyncResult, env, executorService, connectionService, form, stack, hasMoreSessionUsages);
     }
 
     public <T extends PropertyInterface> ExecutionContext<T> override(ImMap<T, ? extends ObjectValue> keys, ImMap<T, ? extends PropertyInterfaceImplement<P>> mapInterfaces) {
@@ -612,11 +632,11 @@ public class ExecutionContext<P extends PropertyInterface> implements UserIntera
     }
 
     public ExecutionContext<P> override(ImMap<P, ? extends ObjectValue> keys, boolean hasMoreSessionUsages) {
-        return new ExecutionContext<>(keys, pushedAsyncResult, env, executorService, form, stack, hasMoreSessionUsages);
+        return new ExecutionContext<>(keys, pushedAsyncResult, env, executorService, connectionService, form, stack, hasMoreSessionUsages);
     }
 
     public <T extends PropertyInterface> ExecutionContext<T> override(ImMap<T, ? extends ObjectValue> keys, FormEnvironment<T> form) {
-        return new ExecutionContext<>(keys, pushedAsyncResult, env, executorService, form, stack, hasMoreSessionUsages);
+        return new ExecutionContext<>(keys, pushedAsyncResult, env, executorService, connectionService, form, stack, hasMoreSessionUsages);
     }
 
     public QueryEnvironment getQueryEnv() {
@@ -624,7 +644,7 @@ public class ExecutionContext<P extends PropertyInterface> implements UserIntera
     }
 
     public void executeSessionEvents() throws SQLException, SQLHandledException {
-        getSession().executeSessionEvents(getSessionEventFormEnv(), stack);
+        getSession().executeSessionEvents(getBL(), getSessionEventFormEnv(), stack);
     }
 
     public void delayUserInteraction(ClientAction action) {
@@ -635,8 +655,12 @@ public class ExecutionContext<P extends PropertyInterface> implements UserIntera
         return ThreadLocalContext.getRemoteContext();
     }
 
+    public boolean isWeb() {
+        return !getRemoteContext().isNative;
+    }
+
     private void assertNotUserInteractionInTransaction() {
-        ServerLoggers.assertLog(!getSession().isInTransaction() || ThreadLocalContext.canBeProcessed(), "USER INTERACTION IN TRANSACTION");
+        ServerLoggers.assertLog(!getSession().isInTransaction() || ThreadLocalContext.userInteractionCanBeProcessedInTransaction(), "USER INTERACTION IN TRANSACTION");
     }
     public Object requestUserInteraction(ClientAction action) {
         assertNotUserInteractionInTransaction();
@@ -722,8 +746,14 @@ public class ExecutionContext<P extends PropertyInterface> implements UserIntera
         return ThreadLocalContext.inputUserData(getSecurityProperty(), dataClass, oldValue, hasOldValue, inputContext, customChangeFunction, inputList, actions);
     }
 
+    // when we want to expose value outside but with file access on the web server
     public Object convertFileValue(Object value) {
-        return getRmiManager().convertFileValue(FormChanges.convertFileValue(value, getRemoteContext()));
+        // todo: here ExternalRequest of the Context (used for its creation) should be + maybe "overriden" in exec / eval
+        return getRmiManager().convertFileValue(ExternalRequest.EMPTY, FormChanges.convertFileValue(value, getRemoteContext()));
+    }
+    public Object convertFileValue(String value) {
+        // todo: here ExternalRequest of the Context (used for its creation) should be + maybe "overriden" in exec / eval
+        return getRmiManager().convertFileValue(ExternalRequest.EMPTY, FormChanges.convertFileValue(value, getRemoteContext()));
     }
 
     public FormInstance createFormInstance(FormEntity formEntity, ImSet<ObjectEntity> inputObjects, ImMap<ObjectEntity, ? extends ObjectValue> mapObjects, DataSession session, boolean isModal, Boolean noCancel, ManageSessionType manageSession, boolean checkOnOk, boolean showDrop, boolean interactive, WindowFormType type, ImSet<ContextFilterInstance> contextFilters, boolean readonly) throws SQLException, SQLHandledException {

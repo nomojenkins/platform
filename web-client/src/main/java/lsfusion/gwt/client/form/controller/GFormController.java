@@ -194,7 +194,7 @@ public class GFormController implements EditManager {
     }
 
     public void checkGlobalMouseEvent(Event event) {
-        checkFormEvent(event, (handler, preview) -> checkMouseEvent(handler, preview, false, false, false));
+        checkFormEvent(new EventHandler(event), (handler, preview) -> checkMouseEvent(handler, preview, false, false, false));
     }
 
     public Event popEditEvent() {
@@ -210,9 +210,7 @@ public class GFormController implements EditManager {
     private interface CheckEvent {
         void accept(EventHandler handler, boolean preview);
     }
-    private static void checkFormEvent(Event event, CheckEvent preview) {
-        EventHandler handler = new EventHandler(event);
-
+    private static void checkFormEvent(EventHandler handler, CheckEvent preview) {
         preview.accept(handler, true); // the problem is that now we check preview twice (however it's not that big overhead, so so far will leave it this way)
         if(handler.consumed)
             return;
@@ -230,12 +228,15 @@ public class GFormController implements EditManager {
         if(GKeyStroke.isKeyEvent(handler.event))
             processBinding(handler, preview, isCell, panel);
     }
-    private static void checkGlobalKeyEvent(DomEvent event, Supplier<GFormController> currentForm) {
+    private static void checkGlobalKeyEvent(DomEvent event, FormsController formsController, Supplier<GFormController> currentForm) {
         NativeEvent nativeEvent = event.getNativeEvent();
-        if(nativeEvent instanceof Event) { // just in case
+        if (nativeEvent instanceof Event) { // just in case
+            EventHandler eventHandler = new EventHandler((Event) nativeEvent);
             GFormController form = currentForm.get();
-            if(form != null)
-                checkFormEvent((Event) nativeEvent, (handler, preview) -> form.checkKeyEvent(handler, preview, false, false));
+            if (form != null)
+                checkFormEvent(eventHandler, (handler, preview) -> form.checkKeyEvent(handler, preview, false, false));
+            if (!eventHandler.consumed && !MainFrame.isModalPopup()) //ignore if modal window
+                formsController.processBinding(eventHandler);
         }
     }
     public void checkMouseKeyEvent(EventHandler handler, boolean preview, boolean isCell, boolean panel, boolean customRenderer) {
@@ -261,10 +262,10 @@ public class GFormController implements EditManager {
     // will handle key events in upper container which will be better from UX point of view
     public static void initKeyEventHandler(Widget widget, FormsController formsController, Supplier<GFormController> currentForm) {
         widget.addDomHandler(event -> {
-            checkGlobalKeyEvent(event, currentForm);
+            checkGlobalKeyEvent(event, formsController, currentForm);
             checkKeyEvents(event, formsController);
         }, KeyDownEvent.getType());
-        widget.addDomHandler(event -> checkGlobalKeyEvent(event, currentForm), KeyPressEvent.getType());
+        widget.addDomHandler(event -> checkGlobalKeyEvent(event, formsController, currentForm), KeyPressEvent.getType());
         widget.addDomHandler(event -> checkKeyEvents(event, formsController), KeyUpEvent.getType());
     }
 
@@ -295,7 +296,7 @@ public class GFormController implements EditManager {
                 setRemoteRegularFilter(filterGroup, e.getValue() != null && e.getValue() ? filter : null);
             }
         });
-        filterCheck.addStyleName("filter-group-check");
+        GwtClientUtils.addClassName(filterCheck, "filter-group-check");
         addFilterView(filterGroup, filterCheck);
 
         if (filterGroup.defaultFilterIndex >= 0) {
@@ -334,8 +335,8 @@ public class GFormController implements EditManager {
             }
         });
 
-        filterBox.setStyleName("filter-group-select");
-        filterBox.addStyleName("form-select");
+        GwtClientUtils.addClassName(filterBox, "filter-group-select");
+        GwtClientUtils.addClassName(filterBox, "form-select");
 
         addFilterView(filterGroup, filterBox);
         if (filterGroup.defaultFilterIndex >= 0) {
@@ -406,13 +407,17 @@ public class GFormController implements EditManager {
             }
 
             GGroupObject groupObject = property.groupObject;
-            if(groupObject != null && property.isList && !property.hide && groupObject.columnCount < 10) {
-                GFont font = groupObject.grid.font;
-                // in theory property renderers padding should be included, but it's hard to do that (there will be problems with the memoization)
-                // plus usually there are no paddings for the property renderers in the table (td paddings are used, and they are included see the usages)
-                groupObject.setColumnSumWidth(groupObject.getColumnSumWidth().add(property.getValueWidth(font, true, true)));
-                groupObject.columnCount++;
-                groupObject.setRowMaxHeight(groupObject.getRowMaxHeight().max(property.getValueHeight(font, true, true)));
+            if (groupObject != null && property.isList && !property.hideOrRemove()) {
+                groupObject.highlightDuplicateValue |= property.highlightDuplicateValue();
+
+                if (groupObject.columnCount < 10) {
+                    GFont font = groupObject.grid.font;
+                    // in theory property renderers padding should be included, but it's hard to do that (there will be problems with the memoization)
+                    // plus usually there are no paddings for the property renderers in the table (td paddings are used, and they are included see the usages)
+                    groupObject.setColumnSumWidth(groupObject.getColumnSumWidth().add(property.getValueWidth(font, true, true)));
+                    groupObject.columnCount++;
+                    groupObject.setRowMaxHeight(groupObject.getRowMaxHeight().max(property.getValueHeight(font, true, true)));
+                }
             }
         }
     }
@@ -1695,8 +1700,8 @@ public class GFormController implements EditManager {
         }
     }
 
-    public Dimension getPreferredSize(GSize maxWidth, GSize maxHeight, Element element) {
-        return formLayout.getPreferredSize(maxWidth, maxHeight, element);
+    public void initPreferredSize(Widget maxWindow, GSize maxWidth, GSize maxHeight) {
+        formLayout.initPreferredSize(maxWindow, maxWidth, maxHeight);
     }
 
     public boolean isWindow() {
@@ -1894,7 +1899,7 @@ public class GFormController implements EditManager {
 
     private void addEnterBinding(boolean shiftPressed, GBindingMode bindGroup, Consumer<Boolean> selectNextElement, GGroupObject groupObject) {
         addBinding(new GKeyInputEvent(new GKeyStroke(KeyCodes.KEY_ENTER, false, false, shiftPressed)),
-                new GBindingEnv(-100, GBindingMode.NO, null, bindGroup, GBindingMode.NO, null, null, null),  // bindEditing - NO, because we don't want for example when editing text in grid to catch enter
+                new GBindingEnv(-100, GBindingMode.NO, null, null, bindGroup, GBindingMode.NO, null, null, null),  // bindEditing - NO, because we don't want for example when editing text in grid to catch enter
                 event -> selectNextElement.accept(!shiftPressed),
                 null,
                 groupObject);
@@ -1915,47 +1920,11 @@ public class GFormController implements EditManager {
         return null;
     }
 
-    public interface GGroupObjectSupplier {
-        GGroupObject get();
-    }
-
     public void processBinding(EventHandler handler, boolean preview, boolean isCell, boolean panel) {
-        final EventTarget target = handler.event.getEventTarget();
-        if (!Element.is(target)) {
-            return;
-        }
-
-        Event event = handler.event;
-        boolean isMouse = GMouseStroke.isEvent(event);
-        TreeMap<Integer, Binding> orderedBindings = new TreeMap<>(); // descending sorting by priority
-
-        GGroupObject groupObject = getBindingGroupObject(Element.as(target));
-        for (int i = 0, size = bindingEvents.size(); i < size; i++) {
-            GBindingEvent bindingEvent = bindingEvents.get(i);
-            if (bindingEvent.event.check(event)) {
-                Binding binding = bindings.get(i);
-                boolean equalGroup;
-                GBindingEnv bindingEnv = bindingEvent.env;
-                if(bindPreview(bindingEnv, preview) &&
-                    bindDialog(bindingEnv) &&
-                    bindGroup(bindingEnv, groupObject, equalGroup = nullEquals(groupObject, binding.groupObject)) &&
-                    bindEditing(bindingEnv, event) &&
-                    bindShowing(bindingEnv, binding.showing()) &&
-                    bindPanel(bindingEnv, isMouse, panel) &&
-                    bindCell(bindingEnv, isMouse, isCell))
-                orderedBindings.put(-(GwtClientUtils.nvl(bindingEnv.priority, i) + (equalGroup ? 100 : 0)), binding); // increasing priority for group object
-            }
-        }
-
-        for (Binding binding : orderedBindings.values()) {
-            if (binding.enabled()) {
-                checkCommitEditing();
-                handler.consume();
-
-                binding.exec(event);
-                return;
-            }
-        }
+        ProcessBinding.processBinding(handler, preview, isCell, panel, bindingEvents, bindings,
+                target -> getBindingGroupObject(Element.as(target)),
+                this::bindPreview, this::bindDialog, this::bindWindow, this::bindGroup, this::bindEditing, this::bindShowing,
+                this::bindPanel, this::bindCell, this::checkCommitEditing);
     }
 
     public void checkCommitEditing() {
@@ -1988,7 +1957,7 @@ public class GFormController implements EditManager {
             case ALL: // actually makes no since if previewed, than will be consumed so equivalent to only
                 return true;
             default:
-                throw new UnsupportedOperationException("Unsupported bindingMode " + binding.bindDialog);
+                throw new UnsupportedOperationException("Unsupported bindingMode " + binding.bindPreview);
         }
     }
 
@@ -2004,6 +1973,21 @@ public class GFormController implements EditManager {
             case INPUT:
             default:
                 throw new UnsupportedOperationException("Unsupported bindingMode " + binding.bindDialog);
+        }
+    }
+
+    private boolean bindWindow(GBindingEnv binding) {
+        switch (binding.bindWindow) {
+            case AUTO:
+            case ALL:
+                return true;
+            case ONLY:
+                return isWindow();
+            case NO:
+                return !isWindow();
+            case INPUT:
+            default:
+                throw new UnsupportedOperationException("Unsupported bindingMode " + binding.bindWindow);
         }
     }
 
@@ -2489,9 +2473,9 @@ public class GFormController implements EditManager {
         element = getColorElement(element);
 
         if(color != null) {
-            element.addClassName("cell-with-background");
+            GwtClientUtils.addClassName(element, "cell-with-background");
         } else {
-            element.removeClassName("cell-with-background");
+            GwtClientUtils.removeClassName(element, "cell-with-background");
         }
         setCellBackgroundColor(element, color);
     }
@@ -2510,9 +2494,9 @@ public class GFormController implements EditManager {
 
     private static void setForegroundColor(Element element, String color) {
         if(color != null)
-            element.addClassName("cell-with-foreground");
+            GwtClientUtils.addClassName(element, "cell-with-foreground");
         else
-            element.removeClassName("cell-with-foreground");
+            GwtClientUtils.removeClassName(element, "cell-with-foreground");
 
         setCellForegroundColor(element, color);
     }
@@ -2527,10 +2511,10 @@ public class GFormController implements EditManager {
 
     public static void setFont(Element element, GFont font) {
         if(font != null) {
-            element.addClassName("cell-with-custom-font");
+            GwtClientUtils.addClassName(element, "cell-with-custom-font");
             setCellFont(element, font.family, font.size, font.italic, font.bold);
         } else {
-            element.removeClassName("cell-with-custom-font");
+            GwtClientUtils.removeClassName(element, "cell-with-custom-font");
             clearCellFont(element);
         }
     }
