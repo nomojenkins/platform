@@ -2905,14 +2905,32 @@ public class Settings implements Cloneable {
         this.filterMatchLanguage = filterMatchLanguage;
     }
     
-    private boolean trueSerializable = false;
+    private int trueSerializableAttempts = 0;
+    private boolean serviceOperationsSerializable = false;
+    private boolean recalculateMaterializationsMixedSerializable = false; // when running not in transaction - first read in READ_COMMITED mismatched materialization, and then read + update in REPEATABLE_READ only mismatched
 
-    public boolean isTrueSerializable() {
-        return trueSerializable;
+    public int getTrueSerializableAttempts() {
+        return trueSerializableAttempts;
     }
 
-    public void setTrueSerializable(boolean trueSerializable) {
-        this.trueSerializable = trueSerializable;
+    public void setTrueSerializableAttempts(int trueSerializableAttempts) {
+        this.trueSerializableAttempts = trueSerializableAttempts;
+    }
+
+    public boolean isServiceOperationsSerializable() {
+        return serviceOperationsSerializable;
+    }
+
+    public void setServiceOperationsSerializable(boolean serviceOperationsSerializable) {
+        this.serviceOperationsSerializable = serviceOperationsSerializable;
+    }
+
+    public boolean isRecalculateMaterializationsMixedSerializable() {
+        return recalculateMaterializationsMixedSerializable;
+    }
+
+    public void setRecalculateMaterializationsMixedSerializable(boolean recalculateMaterializationsMixedSerializable) {
+        this.recalculateMaterializationsMixedSerializable = recalculateMaterializationsMixedSerializable;
     }
 
     public int minInterfaceStatForValueUnique = 100;
@@ -3079,5 +3097,27 @@ public class Settings implements Cloneable {
 
     public void setMaxStickyLeft(double maxStickyLeft) {
         this.maxStickyLeft = maxStickyLeft;
+    }
+
+    //set ignoreBodyStructureSize true and cut last two bytes 0d0a if received
+    //https://javaee.github.io/javamail/docs/api/com/sun/mail/imap/package-summary.html
+    public boolean ignoreBodyStructureSizeFix = false;
+
+    public boolean isIgnoreBodyStructureSizeFix() {
+        return ignoreBodyStructureSizeFix;
+    }
+
+    public void setIgnoreBodyStructureSizeFix(boolean ignoreBodyStructureSizeFix) {
+        this.ignoreBodyStructureSizeFix = ignoreBodyStructureSizeFix;
+    }
+
+    public boolean exportDBFNumericMandatoryZeroes = false;
+
+    public boolean isExportDBFNumericMandatoryZeroes() {
+        return exportDBFNumericMandatoryZeroes;
+    }
+
+    public void setExportDBFNumericMandatoryZeroes(boolean exportDBFNumericMandatoryZeroes) {
+        this.exportDBFNumericMandatoryZeroes = exportDBFNumericMandatoryZeroes;
     }
 }

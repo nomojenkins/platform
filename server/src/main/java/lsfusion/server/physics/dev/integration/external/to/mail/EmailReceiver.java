@@ -129,6 +129,10 @@ public class EmailReceiver {
         mailProps.put("mail." + protocol + ".partialfetch", "true");
         mailProps.put("mail." + protocol + ".fetchsize", "819200");
 
+        if (Settings.get().isIgnoreBodyStructureSizeFix()) {
+            mailProps.put("mail." + protocol + ".ignorebodystructuresize", "true");
+        }
+
         return Session.getInstance(mailProps).getStore(protocol);
     }
 
@@ -156,6 +160,7 @@ public class EmailReceiver {
     private Set<String> getOldSkipEmails(ExecutionContext context, LocalDateTime minDateTime) {
         Set<String> skipEmails = new HashSet<>();
         try {
+            ServerLoggers.mailLogger.info(String.format("Account %s: reading old skip emails started", nameAccount));
             KeyExpr emailExpr = new KeyExpr("email");
             ImRevMap<Object, KeyExpr> emailKeys = MapFact.singletonRev("email", emailExpr);
 
@@ -168,16 +173,16 @@ public class EmailReceiver {
             emailQuery.and(LM.findProperty("skipFilter[Email,Account,DATETIME]").getExpr(emailExpr, accountObject.getExpr(), minDateObject.getExpr()).getWhere());
 
             ImOrderMap<ImMap<Object, Object>, ImMap<Object, Object>> emailResult = emailQuery.execute(context);
-            ServerLoggers.mailLogger.info("reading skip emails:");
             for(ImMap<Object, Object> entry : emailResult.values()) {
                 String emailId = getEmailId(localDateTimeToSqlTimestamp((LocalDateTime) entry.get("dateTimeSentEmail")), (String) entry.get("fromAddressEmail"),
                         (String) entry.get("subjectEmail"), null);
                 ServerLoggers.mailLogger.info(emailId);
                 skipEmails.add(emailId);
             }
+            ServerLoggers.mailLogger.info(String.format("Account %s: reading old skip emails finished", nameAccount));
 
         } catch (Exception e) {
-            ServerLoggers.mailLogger.error(String.format("Account %s: read emails from base failed", nameAccount), e);
+            ServerLoggers.mailLogger.error(String.format("Account %s: reading old skip emails failed", nameAccount), e);
         }
         return skipEmails;
     }
@@ -300,7 +305,6 @@ public class EmailReceiver {
             int folderClosedCount = 0;
             while (count <= messageCount && (maxMessagesAccount == null || dataEmails.size() < maxMessagesAccount)) {
                 try {
-                    ServerLoggers.mailLogger.debug(String.format("Reading email %s of %s (max %s)", count, messageCount, maxMessagesAccount));
                     Message message = messages[messageCount - count];
 
                     String uid = getMessageUID(emailFolder, message);
@@ -308,7 +312,8 @@ public class EmailReceiver {
                     LocalDateTime dateTimeSentEmail = emailData != null ? emailData.dateTimeSent : getSentDate(message);
                     boolean skip = emailData != null && emailData.skip;
 
-                    if (!skip && (minDateTime == null || dateTimeSentEmail == null || minDateTime.compareTo(dateTimeSentEmail) <= 0)) {
+                    if (!skip && !(minDateTime != null && dateTimeSentEmail != null && minDateTime.isAfter(dateTimeSentEmail)))  {
+                        ServerLoggers.mailLogger.info(String.format("Reading email %s of %s, date %s (%s of %s)", dataEmails.size() + 1, maxMessagesAccount, dateTimeSentEmail, count, messageCount));
                         String fromAddressEmail = ((InternetAddress) message.getFrom()[0]).getAddress();
                         String subjectEmail = message.getSubject();
 
@@ -336,6 +341,11 @@ public class EmailReceiver {
                             }
                         }
                     } else {
+                        ServerLoggers.mailLogger.info(String.format("Skipping email %s of %s, date %s", count, messageCount, dateTimeSentEmail));
+                        if(minDateTime != null && dateTimeSentEmail != null && minDateTime.minusDays(1).isAfter(dateTimeSentEmail)) {
+                            ServerLoggers.mailLogger.info("Breaking reading, all next emails will be older then minimum date");
+                            break;
+                        }
                         if (emailData == null) {
                             dataEmails.add(Arrays.asList(uid, dateTimeSentEmail, null, null, nameAccount, null, null, null));
                         }
@@ -467,14 +477,21 @@ public class EmailReceiver {
                 File f = File.createTempFile("attachment", "");
                 try {
                     copyInputStreamToFile(bp.getInputStream(), f);
-                    if(bp.getContentType() != null && bp.getContentType().contains("application/ms-tnef")) {
+                    RawFileData file = new RawFileData(f);
+
+                    byte[] bytes = file.getBytes();
+                    if(Settings.get().ignoreBodyStructureSizeFix && fileName.endsWith(".dbf") && bytes[bytes.length - 1] == 0x0d && bytes[bytes.length - 1] == 0x0a) {
+                        file = new RawFileData(Arrays.copyOfRange(bytes, 0, bytes.length - 2));
+                    }
+
+                    if (bp.getContentType() != null && bp.getContentType().contains("application/ms-tnef")) {
                         attachments.putAll(extractWinMail(f).attachments);
                     } else {
-                        attachments.putAll(unpack(new RawFileData(f), fileName, unpack));
+                        attachments.putAll(unpack(file, fileName, unpack));
                     }
-                } catch (IOException ioe) {
+                } catch (IOException e) {
                     ServerLoggers.mailLogger.error(prefix + "Error reading attachment '" + fileName + "' from email '" + subjectEmail + "'");
-                    throw ioe;
+                    throw e;
                 } finally {
                     if(!f.delete())
                         f.deleteOnExit();

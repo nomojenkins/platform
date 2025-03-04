@@ -653,35 +653,8 @@ public class DBManager extends LogicsManager implements InitializingBean {
         }, sql, LM.baseClass));
     }
 
-    public String recalculateClasses(SQLSession session, boolean isolatedTransactions) throws SQLException, SQLHandledException {
-        recalculateExclusiveness(session, isolatedTransactions);
-
-        final List<String> messageList = new ArrayList<>();
-        final long maxRecalculateTime = Settings.get().getMaxRecalculateTime();
-        for (final ImplementTable implementTable : LM.tableFactory.getImplementTables()) {
-            run(session, isolatedTransactions, sql -> {
-                long start = System.currentTimeMillis();
-                DataSession.recalculateTableClasses(implementTable, sql, LM.baseClass);
-                long time = System.currentTimeMillis() - start;
-                String message = String.format("Recalculate Table Classes: %s, %sms", implementTable.toString(), time);
-                BaseUtils.serviceLogger.info(message);
-                if (time > maxRecalculateTime)
-                    messageList.add(message);
-            });
-        }
-
-        try(DataSession dataSession = createRecalculateSession(session)) {
-            for (final Property property : businessLogics.getStoredDataProperties(dataSession))
-                run(session, isolatedTransactions, sql -> {
-                    long start = System.currentTimeMillis();
-                    property.recalculateClasses(sql, LM.baseClass);
-                    long time = System.currentTimeMillis() - start;
-                    String message = String.format("Recalculate Class: %s, %sms", property.getSID(), time);
-                    BaseUtils.serviceLogger.info(message);
-                    if (time > maxRecalculateTime) messageList.add(message);
-                });
-            return businessLogics.formatMessageList(messageList);
-        }
+    public static void run(SQLSession session, boolean runInTransaction, RunService run) throws SQLException, SQLHandledException {
+        run(session, runInTransaction, false, run);
     }
 
     public String getDataBaseName() {
@@ -1117,6 +1090,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
         ImSet<Property> flushedChanges;
         synchronized (changesListLock) {
             flushedChanges = mChanges.immutable();
+            mChanges = SetFact.mSet();
         }
         if(flushedChanges.isEmpty())
             return;
@@ -1938,13 +1912,13 @@ public class DBManager extends LogicsManager implements InitializingBean {
         void run(SQLSession sql) throws SQLException, SQLHandledException;
     }
 
-    public static void run(SQLSession session, boolean runInTransaction, RunService run) throws SQLException, SQLHandledException {
-        run(session, runInTransaction, run, 0);
+    public static void run(SQLSession session, boolean runInTransaction, boolean forceSerializable, RunService run) throws SQLException, SQLHandledException {
+        run(session, runInTransaction, forceSerializable, run, 0);
     }
 
-    private static void run(SQLSession session, boolean runInTransaction, RunService run, int attempts) throws SQLException, SQLHandledException {
+    private static void run(SQLSession session, boolean runInTransaction, boolean forceSerializable, RunService run, int attempts) throws SQLException, SQLHandledException {
         if(runInTransaction) {
-            session.startTransaction(RECALC_TIL, OperationOwner.unknown);
+            session.startTransaction(forceSerializable || Settings.get().isServiceOperationsSerializable() ? Connection.TRANSACTION_REPEATABLE_READ : -1, OperationOwner.unknown);
             try {
                 run.run(session);
                 session.commitTransaction();
@@ -1952,15 +1926,44 @@ public class DBManager extends LogicsManager implements InitializingBean {
                 session.rollbackTransaction();
                 if(t instanceof SQLHandledException && ((SQLHandledException)t).repeatApply(session, OperationOwner.unknown, attempts)) { // update conflict или deadlock или timeout - пробуем еще раз
                     //serviceLogger.error("Run error: ", t);
-                    run(session, true, run, attempts + 1);
+                    run(session, true, forceSerializable, run, attempts + 1);
                     return;
                 }
 
                 throw ExceptionUtils.propagate(t, SQLException.class, SQLHandledException.class);
             }
-
         } else
             run.run(session);
+    }
+
+    public String recalculateClasses(SQLSession session, boolean isolatedTransactions) throws SQLException, SQLHandledException {
+        recalculateExclusiveness(session, isolatedTransactions);
+
+        final List<String> messageList = new ArrayList<>();
+        final long maxRecalculateTime = Settings.get().getMaxRecalculateTime();
+        for (final ImplementTable implementTable : LM.tableFactory.getImplementTables()) {
+            run(session, isolatedTransactions, sql -> {
+                long start = System.currentTimeMillis();
+                DataSession.recalculateTableClasses(implementTable, sql, LM.baseClass);
+                long time = System.currentTimeMillis() - start;
+                String message = String.format("Recalculate Table Classes: %s, %sms", implementTable.toString(), time);
+                BaseUtils.serviceLogger.info(message);
+                if (time > maxRecalculateTime)
+                    messageList.add(message);
+            });
+        }
+
+        try(DataSession dataSession = createRecalculateSession(session)) {
+            for (final Property property : businessLogics.getStoredDataProperties(dataSession)) {
+                long start = System.currentTimeMillis();
+                property.recalculateClasses(session, isolatedTransactions, LM.baseClass);
+                long time = System.currentTimeMillis() - start;
+                String message = String.format("Recalculate Class: %s, %sms", property.getSID(), time);
+                BaseUtils.serviceLogger.info(message);
+                if (time > maxRecalculateTime) messageList.add(message);
+            }
+            return businessLogics.formatMessageList(messageList);
+        }
     }
 
     public List<AggregateProperty> getDependentProperties(DataSession dataSession, Property<?> property, Set<Property> calculated, boolean dependencies) throws SQLException, SQLHandledException {
@@ -2007,17 +2010,15 @@ public class DBManager extends LogicsManager implements InitializingBean {
 
     @StackProgress
     private void recalculateAggregation(final DataSession dataSession, SQLSession session, boolean isolatedTransaction, @StackProgress final ProgressBar progressBar, final List<String> messageList, final long maxRecalculateTime, @ParamMessage final AggregateProperty property, final Logger logger) throws SQLException, SQLHandledException {
-        run(session, isolatedTransaction, sql -> {
-            long start = System.currentTimeMillis();
-            logger.info(String.format("Recalculate Aggregation started: %s", property.getSID()));
-            property.recalculateAggregation(businessLogics, dataSession, sql, LM.baseClass);
+        long start = System.currentTimeMillis();
+        logger.info(String.format("Recalculate Aggregation started: %s", property.getSID()));
+        property.recalculateAggregation(businessLogics, dataSession, session, isolatedTransaction, LM.baseClass);
 
-            long time = System.currentTimeMillis() - start;
-            String message = String.format("Recalculate Aggregation: %s, %sms", property.getSID(), time);
-            logger.info(message);
-            if (time > maxRecalculateTime)
-                messageList.add(message);
-        });
+        long time = System.currentTimeMillis() - start;
+        String message = String.format("Recalculate Aggregation: %s, %sms", property.getSID(), time);
+        logger.info(message);
+        if (time > maxRecalculateTime)
+            messageList.add(message);
     }
 
     public void recalculateTableClasses(SQLSession session, String tableName, boolean isolatedTransaction) throws SQLException, SQLHandledException {
@@ -2051,7 +2052,7 @@ public class DBManager extends LogicsManager implements InitializingBean {
     }
 
     public <P extends PropertyInterface> void runAggregationRecalculation(final DataSession dataSession, SQLSession session, final AggregateProperty<P> aggregateProperty, PropertyChange<P> where, boolean isolatedTransaction, boolean recalculateClasses) throws SQLException, SQLHandledException {
-        run(session, isolatedTransaction, sql -> aggregateProperty.recalculateAggregation(businessLogics, dataSession, sql, LM.baseClass, where, recalculateClasses));
+        aggregateProperty.recalculateAggregation(businessLogics, dataSession, session, LM.baseClass, where, recalculateClasses, isolatedTransaction);
     }
 
     public void recalculateAggregationWithDependenciesTableColumn(SQLSession session, ExecutionStack stack, String propertyCanonicalName, boolean isolatedTransaction, boolean dependencies) throws SQLException, SQLHandledException {
@@ -2372,30 +2373,10 @@ public class DBManager extends LogicsManager implements InitializingBean {
     public static int START_TIL = -1;
     public static int DEBUG_TIL = -1;
     public static int RECALC_TIL = -1;
-    
-    public static boolean DISABLE_SESSION_TIL = false;
-    public static int getSessionTIL() {
-        return DISABLE_SESSION_TIL ? -1 : getTIL();
-    }
-    
-    public static int getTIL() {
-        return Settings.get().isTrueSerializable() ? Connection.TRANSACTION_SERIALIZABLE : Connection.TRANSACTION_REPEATABLE_READ;
-    }
-    
-    private static Stack<Integer> STACK_TIL = new Stack<>();
-    
-    public static void pushTIL(Integer TIL) {
-        STACK_TIL.push(TIL);
-    }
-    
-    public static Integer popTIL() {
-        return STACK_TIL.isEmpty() ? null : STACK_TIL.pop();
-    }
-    
-    public static Integer getCurrentTIL() {
-        return STACK_TIL.isEmpty() ? getSessionTIL() : STACK_TIL.peek();
-    }
-    
+    public static int ID_TIL = Connection.TRANSACTION_REPEATABLE_READ; // we don't need true serializable
+
+    public boolean serializable = true;
+
     public static String HOSTNAME_COMPUTER;
 
     public static boolean RECALC_REUPDATE = false;
