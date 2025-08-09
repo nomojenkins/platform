@@ -69,7 +69,10 @@ public interface ObjectValueClassSet extends ObjectClassSet, ValueClassSet {
         for (int i = 0, size = concreteChilds.size(); i < size; i++) {
             ConcreteCustomClass customClass = concreteChilds.get(i);
             ImMap<Integer, Object> classStat = classStats.get(MapFact.singleton(0, customClass.ID));
-            LM.statCustomObjectClass.change(classStat == null ? 1 : (Integer) classStat.singleValue(), session, customClass.getClassObject());
+            Long classStatLong = classStat == null ? 1 : (Long) classStat.singleValue();
+            //classStat can be greater than Integer.MAX_VALUE, so we read it as a long, but then use min with Integer.MAX_VALUE
+            //so that we don’t have to refactor all the infrastructure that relies on Integer.
+            LM.statCustomObjectClass.change((int) Math.min(classStatLong, Integer.MAX_VALUE), session, customClass.getClassObject());
         }
     }
 

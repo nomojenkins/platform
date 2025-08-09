@@ -549,8 +549,15 @@ public class ImplementTable extends DBTable { // последний интерф
         StaticValueExpr one = ValueExpr.COUNT;
         query.addProperty("count", GroupExpr.create(MapFact.EMPTY(), one,
                 where, GroupType.SUM, MapFact.EMPTY()));
-        Integer count = (Integer) query.execute(session).singleValue().singleValue();
-        return count == null ? Math.min(total, 1) : (useCoefficient ? (int) Math.min(total, (count / topCoefficient) + 1) : count);
+        //count can be greater than Integer.MAX_VALUE, so we read it as a long, but then use min with Integer.MAX_VALUE
+        //so that we don’t have to refactor all the infrastructure that relies on Integer.
+        Long longCount = (Long) query.execute(session).singleValue().singleValue();
+        if (longCount == null) {
+            return Math.min(total, 1);
+        } else {
+            Integer count = (int) Math.min(longCount, Integer.MAX_VALUE);
+            return useCoefficient ? (int) Math.min(total, count / topCoefficient + 1) : count;
+        }
     }
 
     private DataObject safeReadClasses(DataSession session, LP lcp, DataObject... objects) throws SQLException, SQLHandledException {
