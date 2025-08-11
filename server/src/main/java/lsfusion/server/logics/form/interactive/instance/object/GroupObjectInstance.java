@@ -1305,9 +1305,11 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
                                         (Function<ImMap<Object, ObjectValue>, Integer>) value -> {
                                             ObjectValue expandableParent = value.get("expandableParent");
                                             ObjectValue expandableDown = value.get("expandableDown");
-                                            if(countTreeSubElements)
-                                                return (expandableParent instanceof DataObject ? (Integer)((DataObject) expandableParent).object : 0) +
-                                                        (expandableDown instanceof DataObject ? (Integer)((DataObject) expandableDown).object : 0);
+                                            if(countTreeSubElements) {
+                                                long expandableParentValue = (expandableParent instanceof DataObject ? (Long)((DataObject) expandableParent).object : 0);
+                                                long expandableDownValue = (expandableDown instanceof DataObject ? (Long) ((DataObject) expandableDown).object : 0);
+                                                return ValueExpr.restrictCount(expandableParentValue + expandableDownValue);
+                                            }
 
                                             if(expandableParent instanceof DataObject || expandableDown instanceof DataObject)
                                                 return 1;

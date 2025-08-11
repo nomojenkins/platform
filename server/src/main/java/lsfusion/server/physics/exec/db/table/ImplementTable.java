@@ -549,13 +549,11 @@ public class ImplementTable extends DBTable { // последний интерф
         StaticValueExpr one = ValueExpr.COUNT;
         query.addProperty("count", GroupExpr.create(MapFact.EMPTY(), one,
                 where, GroupType.SUM, MapFact.EMPTY()));
-        //count can be greater than Integer.MAX_VALUE, so we read it as a long, but then use min with Integer.MAX_VALUE
-        //so that we don’t have to refactor all the infrastructure that relies on Integer.
-        Long longCount = (Long) query.execute(session).singleValue().singleValue();
-        if (longCount == null) {
+        Long countLong = (Long) query.execute(session).singleValue().singleValue();
+        if (countLong == null) {
             return Math.min(total, 1);
         } else {
-            Integer count = (int) Math.min(longCount, Integer.MAX_VALUE);
+            Integer count = ValueExpr.restrictCount(countLong);
             return useCoefficient ? (int) Math.min(total, count / topCoefficient + 1) : count;
         }
     }

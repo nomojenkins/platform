@@ -103,6 +103,12 @@ public class ValueExpr extends AbstractValueExpr<ConcreteClass> implements Value
     public static IntegralClass COUNTCLASS = LongClass.instance;
     public static StaticValueExpr COUNT = new StaticValueExpr(1L, COUNTCLASS);
 
+    //count can be greater than Integer.MAX_VALUE, so we read it as a long, but then use min with Integer.MAX_VALUE
+    //so that we don’t have to refactor all the infrastructure that relies on Integer.
+    public static int restrictCount(long count) {
+        return (int) Math.min(count, Integer.MAX_VALUE);
+    }
+
     public static StaticValueExpr IMPOSSIBLESTRING = new StaticValueExpr(LocalizedString.create(BaseUtils.impossibleString, false), StringClass.text);
 
     public String getSource(CompileSource compile, boolean needValue) {

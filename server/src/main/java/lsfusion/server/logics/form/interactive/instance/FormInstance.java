@@ -1318,16 +1318,16 @@ public class FormInstance extends ExecutionEnvironment implements ReallyChanged,
                 executeClasses(sql, mOrders.immutableOrder(), new LimitOffset(neededCount), baseClass, env);
 
         PropertyAsync<P>[] resultValues = new PropertyAsync[result.size()];
-        int count = 0;
-        for(int i = 0, size = result.size(); i < size; i++) {
+        long count = 0;
+        for (int i = 0, size = result.size(); i < size; i++) {
             ImMap<String, ObjectValue> values = result.getValue(i);
-            count += (Integer)values.get("count").getValue();
+            count += (Long) values.get("count").getValue();
             resultValues[i] = new PropertyAsync<P>(BaseUtils.nullToString(values.get("highlight").getValue()), // acutally there is always String, because of isDefaultWYSInput check, except when using in getSelectProperty
-                    readObjects ? BaseUtils.nullToString(values.get("raw").getValue()) : (String)result.getKey(i).singleValue().getValue(),
-                    needObjects ? (ImMap<P, DataObject>)result.getKey(i) : null);
+                    readObjects ? BaseUtils.nullToString(values.get("raw").getValue()) : (String) result.getKey(i).singleValue().getValue(),
+                    needObjects ? (ImMap<P, DataObject>) result.getKey(i) : null);
         }
 
-        return new Pair<>(resultValues, count);
+        return new Pair<>(resultValues, ValueExpr.restrictCount(count));
     }
 
     public static <P extends PropertyInterface> ObjectValue getAsyncKey(InputPropertyValueList<P> list, DataSession session, Modifier modifier, ObjectValue value) throws SQLException, SQLHandledException {
