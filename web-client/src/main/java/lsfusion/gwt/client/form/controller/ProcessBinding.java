@@ -55,8 +55,7 @@ public class ProcessBinding {
                         bindShowing.apply(bindingEnv, binding.showing()) &&
                         bindPanel.apply(bindingEnv, isMouse, panel) &&
                         bindCell.apply(bindingEnv, isMouse, isCell)) {
-                    // increasing priority for group object; possible problems in forms with over 1000 properties
-                    orderedBindings.put(-(GwtClientUtils.nvl(bindingEnv.priority, i) + (equalGroup ? 1000 : 0)), binding);
+                    orderedBindings.put(-(GwtClientUtils.nvl(bindingEnv.priority, i) + (equalGroup ? 100 : 0)), binding); // increasing priority for group object
                     bindingEvent.event.check(event);
                 }
             }
