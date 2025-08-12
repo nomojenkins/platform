@@ -534,7 +534,7 @@ public class ReflectionManager extends LogicsManager implements InitializingBean
         ImportField complexityPropertyField = new ImportField(LongClass.instance);
         ImportField tableSIDPropertyField = new ImportField(reflectionLM.propertyTableValueClass);
         ImportField annotationPropertyField = new ImportField(reflectionLM.propertyTableValueClass);
-        ImportField statsPropertyField = new ImportField(ValueExpr.COUNTCLASS);
+        ImportField statsPropertyField = new ImportField(ValueExpr.COUNTINTCLASS);
 
         ConcreteCustomClass customClass = actions ? reflectionLM.action : reflectionLM.property;
         LP objectByName = actions ? reflectionLM.actionCanonicalName : reflectionLM.propertyCanonicalName;
