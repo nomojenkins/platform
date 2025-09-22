@@ -61,6 +61,7 @@ public class AddObjectAction<T extends PropertyInterface, I extends PropertyInte
         
         this.valueClass = valueClass;
         
+        
         this.autoSet = autoSet;
         
         this.where = where;
