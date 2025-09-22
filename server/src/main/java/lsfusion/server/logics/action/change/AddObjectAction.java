@@ -55,6 +55,7 @@ public class AddObjectAction<T extends PropertyInterface, I extends PropertyInte
         this(valueClass, SetFact.EMPTY(), SetFact.EMPTYORDER(), null, result!=null ? new PropertyMapImplement<>(result) : null, MapFact.EMPTYORDER(), false, autoSet);
     }
 
+    
     public AddObjectAction(CustomClass valueClass, ImSet<I> innerInterfaces, ImOrderSet<I> mapInterfaces, PropertyMapImplement<T, I> where, PropertyMapImplement<?, I> result, ImOrderMap<PropertyInterfaceImplement<I>, Boolean> orders, boolean ordersNotNull, boolean autoSet) {
         super(LocalizedString.create("{logics.add}"), innerInterfaces, mapInterfaces);
         
