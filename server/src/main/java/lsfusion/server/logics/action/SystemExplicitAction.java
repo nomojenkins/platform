@@ -29,4 +29,5 @@ public abstract class SystemExplicitAction extends ExplicitAction {
     protected SystemExplicitAction(LocalizedString caption, ValueClass... classes) {
         super(caption, classes);
     }
+    
 }
