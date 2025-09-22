@@ -79,6 +79,7 @@ public class AddObjectAction<T extends PropertyInterface, I extends PropertyInte
 
     
     
+    
     // not sure that we gonna support this branch
     @Deprecated
     protected boolean needDialog() {
