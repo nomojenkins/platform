@@ -51,6 +51,8 @@ public class AddObjectAction<T extends PropertyInterface, I extends PropertyInte
     private final ImOrderMap<PropertyInterfaceImplement<I>, Boolean> orders; // calculate
     private final boolean ordersNotNull;
 
+    
+    
     public <T extends PropertyInterface> AddObjectAction(CustomClass valueClass, Property<T> result, boolean autoSet) {
         this(valueClass, SetFact.EMPTY(), SetFact.EMPTYORDER(), null, result!=null ? new PropertyMapImplement<>(result) : null, MapFact.EMPTYORDER(), false, autoSet);
     }
