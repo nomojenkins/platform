@@ -25,6 +25,8 @@ public abstract class SystemExplicitAction extends ExplicitAction {
     protected boolean allowNulls() {
         return true;
     }
+    
+    
 
     protected SystemExplicitAction(LocalizedString caption, ValueClass... classes) {
         super(caption, classes);
