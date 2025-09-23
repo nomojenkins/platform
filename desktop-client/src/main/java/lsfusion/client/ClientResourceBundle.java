@@ -14,4 +14,5 @@ public class ClientResourceBundle {
         return MessageFormat.format(getString(key), params);
     }
     
+    
 }
