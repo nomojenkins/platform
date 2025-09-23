@@ -76,6 +76,7 @@ public class AddObjectAction<T extends PropertyInterface, I extends PropertyInte
         assert where==null || result==null || innerInterfaces.containsAll(where.mapping.valuesSet().merge(result.mapping.valuesSet()));
     }
     
+    
 
     
     
