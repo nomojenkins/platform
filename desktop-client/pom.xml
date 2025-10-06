@@ -50,8 +50,9 @@
                                     <arg value="${assemble.jar}" />
                                 </exec>
 
+                                <echo message="Signing file ${project.build.directory}/${assemble.file.name}"/>
                                 <exec executable="/usr/share/ssl/sign.sh" failonerror="true">
-                                    <arg value="${version}" />
+                                    <arg value="${project.build.directory}/${assemble.file.name}" />
                                 </exec>
 
                                 <!-- settings.xml -->
