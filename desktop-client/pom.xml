@@ -50,8 +50,12 @@
                                     <arg value="${assemble.jar}" />
                                 </exec>
 
+                                <exec executable="/usr/share/ssl/sign.sh" failonerror="true">
+                                    <arg value="${version}" />
+                                </exec>
+
                                 <!-- settings.xml -->
-                                <signjar jar="${assemble.jar}" keystore="${keystore.file}" alias="${keystore.alias}" storepass="${keystore.pass}" />
+<!--                                <signjar jar="${assemble.jar}" keystore="${keystore.file}" alias="${keystore.alias}" storepass="${keystore.pass}" />-->
                             </target>
                         </configuration>
                     </execution>
