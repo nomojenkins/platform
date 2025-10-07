@@ -17,5 +17,6 @@ public enum ClientType {
             default:
                 throw new UnsupportedOperationException("Unsupported ClientType");
         }
+        
     }
 }
