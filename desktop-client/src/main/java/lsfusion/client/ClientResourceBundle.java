@@ -13,4 +13,12 @@ public class ClientResourceBundle {
     public static String getString(String key, Object... params) {
         return MessageFormat.format(getString(key), params);
     }
+    
+    
+    
+
+    
+    
+    
+    
 }

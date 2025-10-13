@@ -18,7 +18,7 @@
         
         <sign.jar>false</sign.jar>
         <ssl.dir>/usr/share/jenkins/ssl</ssl.dir>
-        <signed.jars.dir>${ssl.dir}/signed</signed.jars.dir>
+        <signed.jars.dir>${ssl.dir}/signedtest</signed.jars.dir>
         <signed.jar.file>${signed.jars.dir}/${assemble.file.name}</signed.jar.file>
     </properties>
     
@@ -46,8 +46,6 @@
                         </goals>
                         <configuration>
                             <target if="${sign.jar}">
-                                <taskdef resource="net/sf/antcontrib/antlib.xml" classpathref="maven.plugin.classpath" />
-                                
                                 <echo message="Repacking jar ${assemble.jar}" />
                                 <exec executable="pack200">
                                     <arg value="--repack" />
@@ -56,20 +54,14 @@
                                     <arg value="${assemble.jar}" />
                                 </exec>
 
-                                <if>
-                                    <not>
-                                        <available file="${signed.jar.file}"/>
-                                    </not>
-                                    <then>
-                                        <echo message="Signing file ${project.build.directory}/${assemble.file.name}"/>
-                                        <exec executable="${ssl.dir}/sign.sh" failonerror="true">-->
-                                            <arg value="${project.build.directory}/${assemble.file.name}"/>
-                                            <arg value="${signed.jars.dir}"/>
-                                        </exec>
-                                    </then>
-                                </if>
+                                <echo message="Signing file ${project.build.directory}/${assemble.file.name}"/>
+                                <exec executable="/usr/share/ssl/sign.sh" failonerror="true">
+                                    <arg value="${project.build.directory}/${assemble.file.name}" />
+                                </exec>
+
+                                <!-- settings.xml -->
                                 
-                                <copy file="${signed.jar.file}" todir="${project.build.directory}" overwrite="true"/>
+                                <!--                                <signjar jar="${assemble.jar}" keystore="${keystore.file}" alias="${keystore.alias}" storepass="${keystore.pass}" />-->
                             </target>
                         </configuration>
                     </execution>
@@ -92,19 +84,6 @@
                         </configuration>
                     </execution>
                 </executions>
-                <dependencies>
-                    <dependency>
-                        <groupId>ant-contrib</groupId>
-                        <artifactId>ant-contrib</artifactId>
-                        <version>1.0b3</version>
-                        <exclusions>
-                            <exclusion>
-                                <groupId>ant</groupId>
-                                <artifactId>ant</artifactId>
-                            </exclusion>
-                        </exclusions>
-                    </dependency>
-                </dependencies>
             </plugin>
             <plugin>
                 <!-- pack200 : install and deploy -->
