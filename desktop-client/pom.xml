@@ -46,6 +46,8 @@
                         </goals>
                         <configuration>
                             <target if="${sign.jar}">
+                                <taskdef resource="net/sf/antcontrib/antlib.xml" classpathref="maven.plugin.classpath" />
+
                                 <echo message="Repacking jar ${assemble.jar}" />
                                 <exec executable="pack200">
                                     <arg value="--repack" />
@@ -54,13 +56,20 @@
                                     <arg value="${assemble.jar}" />
                                 </exec>
 
-                                <echo message="Signing file ${project.build.directory}/${assemble.file.name}"/>
-                                <exec executable="/usr/share/ssl/sign.sh" failonerror="true">
-                                    <arg value="${project.build.directory}/${assemble.file.name}" />
-                                </exec>
+                                <if>
+                                    <not>
+                                        <available file="${signed.jar.file}"/>
+                                    </not>
+                                    <then>
+                                        <echo message="Signing file ${project.build.directory}/${assemble.file.name}"/>
+                                        <exec executable="${ssl.dir}/sign.sh" failonerror="true">-->
+                                            <arg value="${project.build.directory}/${assemble.file.name}"/>
+                                            <arg value="${signed.jars.dir}"/>
+                                        </exec>
+                                    </then>
+                                </if>
 
-                                <!-- settings.xml -->
-<!--                                <signjar jar="${assemble.jar}" keystore="${keystore.file}" alias="${keystore.alias}" storepass="${keystore.pass}" />-->
+                                <copy file="${signed.jar.file}" todir="${project.build.directory}" overwrite="true"/>
                             </target>
                         </configuration>
                     </execution>
@@ -83,6 +92,19 @@
                         </configuration>
                     </execution>
                 </executions>
+                <dependencies>
+                    <dependency>
+                        <groupId>ant-contrib</groupId>
+                        <artifactId>ant-contrib</artifactId>
+                        <version>1.0b3</version>
+                        <exclusions>
+                            <exclusion>
+                                <groupId>ant</groupId>
+                                <artifactId>ant</artifactId>
+                            </exclusion>
+                        </exclusions>
+                    </dependency>
+                </dependencies>
             </plugin>
             <plugin>
                 <!-- pack200 : install and deploy -->
