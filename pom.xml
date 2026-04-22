@@ -29,7 +29,7 @@
     </properties>
 
     <scm>
-        <developerConnection>scm:git:ssh://git@github.com/lsfusion/platform.git</developerConnection>
+        <developerConnection>scm:git:ssh://git@github.com/nomojenkins/platform.git</developerConnection>
       <tag>HEAD</tag>
     </scm>
 
